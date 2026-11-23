@@ -8,9 +8,9 @@ O projeto também serve para estudar sistemas distribuídos. A mesma aplicação
 
 ## Demonstração
 
-O vídeo de 26 segundos mostra o formulário criando o link `xispa.test/aSPUXMZ`. Ao abri-lo, o navegador chega à página inicial do Google. O domínio foi configurado só para a demonstração local. O vídeo tem legendas em português.
+O vídeo de 26 segundos mostra o formulário criando o link `xispa.test/aSPUXMZ`. Ao abri-lo, o navegador chega à página inicial do Google. O domínio foi configurado só para a demonstração local.
 
-https://github.com/user-attachments/assets/c9823d06-e8de-41d0-a702-604775aa45f3
+https://github.com/user-attachments/assets/ff9dd577-704b-40ae-8df5-d19741b0fd76
 
 [Baixar o vídeo (MP4)](https://github.com/mh131105/encurtador-de-urls/releases/download/v0.1.3/demonstracao.mp4) · [Abrir o Google](https://www.google.com/)
 
