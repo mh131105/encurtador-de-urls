@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.test-dist/
+__pycache__/
+build/
+coverage/
+*.log
+.env*
+!.env.example
+.DS_Store
+**/api.env
+/state/
+/encurtador-*.tar

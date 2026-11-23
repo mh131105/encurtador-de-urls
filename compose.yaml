@@ -1,0 +1,58 @@
+services:
+  api:
+    image: ${API_IMAGE:-encurtador-api:0.1.0}
+    mem_limit: ${API_MEMORY_LIMIT:-160m}
+    # Drenagem HTTP + espera de CQL + cinco segundos para fechar o processo.
+    stop_grace_period: "${REQUEST_TIMEOUT_MS:-15000}ms${DB_TIMEOUT_MS:-5000}ms5s"
+    volumes:
+      - ${EMISSION_MARKER_DIR:-./state/emission}:/run/encurtador:ro
+    env_file:
+      - path: ${API_ENV_FILE:-api.env}
+        required: false
+    environment:
+      PORT: "3000"
+      REQUEST_TIMEOUT_MS: ${REQUEST_TIMEOUT_MS:-15000}
+      DB_TIMEOUT_MS: ${DB_TIMEOUT_MS:-5000}
+      EMISSION_MARKER_FILE: /run/encurtador/emission.json
+      NODE_OPTIONS: "--max-old-space-size=${V8_HEAP_MIB:-64}"
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:${HTTP_PORT:-8080}}
+      CASSANDRA_CONTACT_POINTS: ${CASSANDRA_CONTACT_POINTS:-cassandra}
+      CASSANDRA_PORT: ${CASSANDRA_PORT:-9042}
+      CASSANDRA_DATACENTER: ${CASSANDRA_DATACENTER:-datacenter1}
+      CASSANDRA_KEYSPACE: ${CASSANDRA_KEYSPACE:-encurtador}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+  nginx:
+    image: ${NGINX_IMAGE:-encurtador-nginx:0.1.0}
+    mem_limit: ${NGINX_MEMORY_LIMIT:-24m}
+    depends_on: [api]
+    ports:
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8080}:80"
+  cassandra:
+    image: cassandra:5.0.6@sha256:b494afb347bfd20765d80817d89d9e6e31ae77a339bfb34e82c6ea868a51c9c1
+    mem_limit: ${CASSANDRA_MEMORY_LIMIT:-1024m}
+    profiles: [cassandra]
+    # Habilita o formato Cassandra 5 para TTL que ultrapasse 2038 em volumes novos.
+    command:
+      - sh
+      - -ec
+      - |
+        sed -i 's/^storage_compatibility_mode:.*/storage_compatibility_mode: NONE/' /etc/cassandra/cassandra.yaml
+        exec docker-entrypoint.sh cassandra -f
+    environment:
+      MAX_HEAP_SIZE: ${CASSANDRA_HEAP:-384M}
+      HEAP_NEWSIZE: ${CASSANDRA_YOUNG_HEAP:-64M}
+      CASSANDRA_DC: ${CASSANDRA_DATACENTER:-datacenter1}
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+  redis:
+    image: redis:7.4.6-alpine@sha256:3b73847e72874be07e6657b129a94761662b79bc0f679273757d4218573b2a98
+    mem_limit: ${REDIS_MEMORY_LIMIT:-48m}
+    command: ["redis-server", "--maxmemory", "${REDIS_MAXMEMORY:-16mb}", "--maxmemory-policy", "allkeys-lru"]
+    profiles: [redis]
+    volumes:
+      - redis-data:/data
+
+volumes:
+  cassandra-data:
+  redis-data:

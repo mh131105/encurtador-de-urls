@@ -1,0 +1,17 @@
+.git
+.agents
+.specify
+**/node_modules
+**/dist
+**/.test-dist
+**/__pycache__
+**/build
+**/coverage
+**/*.log*
+**/.env*
+**/.DS_Store
+Dockerfile*
+.dockerignore
+**/api.env
+/state/
+/encurtador-*.tar

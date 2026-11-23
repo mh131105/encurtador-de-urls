@@ -1,0 +1,4 @@
+services:
+  api:
+    ports:
+      - "${API_PRIVATE_IP:?Defina o IPv4 privado deste host}:3000:3000"

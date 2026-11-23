@@ -1,0 +1,22 @@
+# Combinar, na ordem, com compose.yaml e deploy/ha/api-privada.yaml.
+services:
+  api-b:
+    extends:
+      file: compose.yaml
+      service: api
+    ports: ["127.0.0.3:3000:3000"]
+  entrada-rede:
+    image: ${NGINX_IMAGE:-encurtador-nginx:0.1.0}
+    network_mode: host
+    extra_hosts:
+      api-a: "127.0.0.2"
+      api-b: "127.0.0.3"
+    volumes:
+      - ./deploy/ha/nginx.conf:/tmp/ha.conf:ro
+    # O ensaio Linux usa o loopback do host nas duas direções.
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        sed 's/listen 80;/listen 127.0.0.1:18072;/' /tmp/ha.conf > /tmp/laboratorio.conf
+        grep -Fq 'listen 127.0.0.1:18072;' /tmp/laboratorio.conf
+        exec nginx -c /tmp/laboratorio.conf -g 'daemon off;'

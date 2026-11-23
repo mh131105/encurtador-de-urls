@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ensaio do formulário</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <fieldset>
+      <legend>Resposta controlada da API</legend>
+      <label for="resposta">Próximo POST</label>
+      <select id="resposta">
+        <option value="201">201 imediato</option>
+        <option value="aguardar">Aguardar confirmação</option>
+        <option value="400">400</option>
+        <option value="503">503</option>
+        <option value="rede">Falha de rede</option>
+      </select>
+      <button type="button" id="confirmar" disabled>Confirmar com 201</button>
+      <p>POSTs recebidos: <span id="total">0</span></p>
+      <pre id="pedido" style="white-space: pre-wrap; overflow-wrap: anywhere"></pre>
+    </fieldset>
+    <script>
+      const fetchOriginal = window.fetch.bind(window);
+      const resposta = document.querySelector('#resposta');
+      const confirmar = document.querySelector('#confirmar');
+      let total = 0;
+      const pendentes = [];
+
+      confirmar.onclick = () => {
+        for (const liberar of pendentes.splice(0)) liberar();
+        confirmar.disabled = true;
+      };
+
+      window.fetch = async (input, init) => {
+        const request = new Request(input, init);
+        const url = new URL(request.url);
+        if (request.method !== 'POST' || url.origin !== location.origin || url.pathname !== '/api/v1/encurtar') {
+          return fetchOriginal(input, init);
+        }
+        const modo = resposta.value;
+        document.querySelector('#total').textContent = String(++total);
+        document.querySelector('#pedido').textContent =
+          request.method + ' ' + url.pathname + ' (' + request.headers.get('Content-Type') + ')\n' + await request.text();
+        if (modo === 'rede') throw new TypeError('Falha de rede simulada');
+        if (modo === 'aguardar') {
+          confirmar.disabled = false;
+          await new Promise(liberar => pendentes.push(liberar));
+        }
+        if (modo === '400' || modo === '503') return new Response(null, { status: Number(modo) });
+        return Response.json({ short_url: 'https://s.example/k7Q2aZ9' }, { status: 201 });
+      };
+    </script>
+    <script type="module" src="../src/main.tsx"></script>
+  </body>
+</html>
