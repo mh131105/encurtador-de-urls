@@ -38,11 +38,11 @@ if [[ ! -f state/instalacao ]]; then
   done
 
   api=mh131105/encurtador-de-urls:0.1.0
-  web=mh131105/encurtador-de-urls-web:0.1.0
+  web=mh131105/encurtador-de-urls-web:0.1.1
   if [[ $modo == --build ]]; then
     [[ -f Dockerfile && -f deploy/nginx/Dockerfile ]] || falhar 'A opção --build requer o clone completo do repositório.'
     api="$projeto-api:0.1.0"
-    web="$projeto-web:0.1.0"
+    web="$projeto-web:0.1.1"
   fi
   chave=$(od -An -N32 -tx1 /dev/urandom | tr -d '[:space:]')
   [[ ${#chave} == 64 ]] || falhar 'Não foi possível gerar a chave de emissão.'

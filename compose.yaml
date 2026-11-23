@@ -22,7 +22,7 @@ services:
       CASSANDRA_KEYSPACE: ${CASSANDRA_KEYSPACE:-encurtador}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
   nginx:
-    image: ${NGINX_IMAGE:-encurtador-nginx:0.1.0}
+    image: ${NGINX_IMAGE:-encurtador-nginx:0.1.1}
     mem_limit: ${NGINX_MEMORY_LIMIT:-24m}
     depends_on: [api]
     ports:

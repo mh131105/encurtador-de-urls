@@ -44,6 +44,11 @@ try {
   const home = await page.goto(origin);
   assert.equal(home?.status(), 200);
   assert.match(await home.headerValue('content-type'), /text\/html/i);
+  assert.equal(await page.title(), 'XISPA · Encurtador de URLs');
+  const heading = page.getByRole('heading', {level: 1, name: 'XISPA Encurtador de URLs', exact: true});
+  const logo = heading.getByRole('img', {name: 'XISPA', exact: true});
+  await logo.waitFor();
+  await logo.evaluate(image => image.decode());
   await input.waitFor();
   assert.equal(await copy.count(), 0);
   await page.keyboard.press('Tab');

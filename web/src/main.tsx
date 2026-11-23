@@ -5,6 +5,7 @@ import { InternationalizationProvider } from '@astryxdesign/core/i18n';
 import ptBR from '@astryxdesign/core/locales/pt-BR.generated.js';
 import { Theme } from '@astryxdesign/core/theme';
 import { neutralTheme } from '@astryxdesign/theme-neutral/built';
+import wordmark from './assets/xispa.svg';
 import { Shortener } from './Shortener';
 import './theme.css';
 
@@ -14,7 +15,10 @@ function App() {
       <Theme theme={neutralTheme}>
         <main>
           <div className="shortener">
-            <Heading level={1}>Encurtador de URLs</Heading>
+            <Heading level={1} className="identity">
+              <img className="wordmark" src={wordmark} width={2172} height={724} alt="XISPA" />
+              <span>Encurtador de URLs</span>
+            </Heading>
             <Shortener />
           </div>
         </main>

@@ -1,18 +1,18 @@
-# Encurtador de URLs
+# <img src="web/src/assets/xispa.svg" alt="XISPA" width="280">
 
 [**Ver a demonstração**](#demonstração) · [Instalar](#instalar) · [Arquitetura](docs/arquitetura.md) · [Docker Hub](https://hub.docker.com/r/mh131105/encurtador-de-urls)
 
-Crie links curtos no seu próprio domínio. Cole um endereço na página e compartilhe o link gerado. Ele usa um código de sete caracteres e leva ao destino original, inclusive à seção indicada depois de `#`. Qualquer pessoa pode criar ou abrir um link sem cadastro.
+O XISPA é um encurtador de URLs que você pode hospedar no seu próprio domínio. Cole um endereço na página e compartilhe o link gerado. Ele usa um código de sete caracteres e leva ao destino original, inclusive à seção indicada depois de `#`. Qualquer pessoa pode criar ou abrir um link sem cadastro.
 
 O projeto também serve para estudar sistemas distribuídos. A mesma aplicação pode rodar em uma máquina com Docker ou usar várias réplicas da API e distribuir os dados entre nós do Apache Cassandra.
 
 ## Demonstração
 
-Em 29 segundos, o vídeo mostra como colar uma URL, criar o link curto e abri-lo. O navegador chega à seção **Resultados e recorte** do projeto Amazônia nas Provas. A gravação usa as imagens públicas do encurtador e tem legendas em português.
+O vídeo de 26 segundos mostra o formulário criando o link `xispa.test/VKBtHZF`. Ao abri-lo, o navegador chega à seção **Resultados e recorte** do projeto Amazônia nas Provas. O domínio foi configurado só para a demonstração local. O vídeo tem legendas em português.
 
-https://github.com/user-attachments/assets/d79db049-1f06-4855-879f-2e46681573fb
+https://github.com/user-attachments/assets/6fb19bbd-3b8e-4050-a181-4d697dce2dee
 
-[Baixar o vídeo (MP4)](https://github.com/mh131105/encurtador-de-urls/releases/download/v0.1.0/demonstracao.mp4) · [Abrir a página de destino](https://github.com/mh131105/amazonia-nas-provas#resultados-e-recorte)
+[Baixar o vídeo (MP4)](https://github.com/mh131105/encurtador-de-urls/releases/download/v0.1.1/demonstracao.mp4) · [Abrir a página de destino](https://github.com/mh131105/amazonia-nas-provas#resultados-e-recorte)
 
 ## Instalar
 
@@ -20,12 +20,12 @@ Você precisa do Docker com o Compose 2.24.0 ou mais recente. Os comandos abaixo
 
 ### Usar as imagens prontas do Docker Hub
 
-Este caminho dispensa Git, Node.js e compilação. Baixe o pacote da versão 0.1.0 e inicie o serviço na sua máquina.
+Este caminho dispensa Git, Node.js e compilação. Baixe o pacote da versão 0.1.1 e inicie o serviço na sua máquina.
 
 ```sh
-curl -fLO https://github.com/mh131105/encurtador-de-urls/releases/download/v0.1.0/encurtador-0.1.0.tar.gz
-tar -xzf encurtador-0.1.0.tar.gz
-cd encurtador-0.1.0
+curl -fLO https://github.com/mh131105/encurtador-de-urls/releases/download/v0.1.1/encurtador-0.1.1.tar.gz
+tar -xzf encurtador-0.1.1.tar.gz
+cd encurtador-0.1.1
 bash scripts/iniciar.sh
 ```
 

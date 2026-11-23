@@ -23,7 +23,23 @@ main {
   box-shadow: var(--shadow-low);
 }
 
+.shortener .identity {
+  display: grid;
+  gap: .625rem;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.wordmark {
+  display: block;
+  width: min(100%, 19rem);
+  height: auto;
+}
+
 .shortener form {
+  --color-accent: #3154f5;
+  --color-on-accent: #fff;
   display: grid;
   gap: 1rem;
   margin-block-start: 2rem;
