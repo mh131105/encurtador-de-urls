@@ -1,42 +1,34 @@
 # Emissão, backup e restauração
 
-Um keyspace mantém os vínculos e uma linha de reserva chamada `principal`. A chave FF1, o tweak, o alfabeto, a origem e o identificador da instalação acompanham os links durante toda a sua vida. A marca externa guarda a geração, a identificação dos parâmetros e o teto exclusivo de todos os blocos já autorizados. Ela precisa sobreviver à perda do cluster. Guarde a chave separadamente em um repositório de segredos com backup.
+A recuperação exige os vínculos, a linha de reserva `principal`, os parâmetros FF1 e a marca externa mais recente. A marca contém a instalação, a geração, a impressão digital dos parâmetros e o intervalo autorizado. Ela deve sobreviver à perda do banco. Preserve também a origem pública e uma cópia protegida da chave e do tweak durante toda a vida dos links.
 
 ## Iniciar uma instalação nova
 
-Os exemplos CQL usam `encurtador` e `datacenter1`. Ajuste esses nomes ao cluster e à configuração da API. Para um volume novo da demo, use RF 1. Para três nós em domínios independentes, use `ha.cql` e `CASSANDRA_CONSISTENCY=LOCAL_QUORUM`. O schema é o mesmo. Para expandir um keyspace que já contém links, siga o procedimento de alteração da replicação e repair. [Expansão de RF 1 para RF 3](topologia.md#expandir-o-keyspace-existente-de-rf-1-para-rf-3)
+O [iniciador da instalação](../../docs/instalacao.md) prepara o schema e a emissão da demo. As instruções manuais desta seção são para operadores que administram o Cassandra e a marca diretamente. Use `demo.cql` para um nó novo com RF 1 ou `ha.cql` para três nós em domínios independentes com `LOCAL_QUORUM`. Confira o datacenter antes de aplicar o esquema. Para um keyspace já existente, siga a [expansão para RF 3](topologia.md#expandir-o-keyspace-existente-de-rf-1-para-rf-3).
 
 ```sh
 docker compose exec -T cassandra cqlsh < deploy/cassandra/demo.cql
 docker compose exec -T cassandra cqlsh -k encurtador < deploy/cassandra/schema.cql
 ```
 
-Em cluster externo, rode `cqlsh` na máquina administrativa e aplique os mesmos arquivos. Use o formato Cassandra 5 com `storage_compatibility_mode: NONE` nos nós preparados para TTL longo. Em volumes que passaram por upgrade, confirme o formato dos SSTables e conclua o procedimento de upgrade da versão antes de qualificar o TTL. A verificação de escrita e leitura está em `tests/integration/write.test.ts`.
+Para um banco externo, use cqlsh na estação administrativa. A retenção longa exige Cassandra 5 com `storage_compatibility_mode: NONE`. Após upgrade, conclua a migração do formato dos SSTables e confira uma gravação com TTL além de 2038. [Teste com o armazenamento](../../tests/integration/write.test.ts)
 
-Em um host administrativo, monte um diretório fora do volume e dos snapshots do Cassandra. Ele precisa garantir escrita atômica por rename, bloqueio por criação exclusiva e persistência de arquivo e diretório após fsync. Em HA, todas as APIs devem ler a mesma versão atual desse diretório, com visibilidade coerente das trocas de nome. Monte o diretório pai inteiro no contêiner. Dê escrita somente ao processo administrativo, com permissão de leitura às réplicas. Defina `EMISSION_MARKER_FILE`, por exemplo `/run/encurtador/emission.json`, e as variáveis de conexão, origem e FF1 descritas no guia principal.
+Monte o diretório **pai** da marca fora do volume e dos snapshots do Cassandra. O sistema de arquivos precisa oferecer criação exclusiva para a trava, rename atômico, fsync do arquivo e do diretório e visibilidade coerente para todas as APIs. Mantenha um único escritor administrativo e as réplicas com montagem de leitura.
 
-Os comandos abaixo usam a imagem compilada ou um checkout com `npm run build`, as mesmas credenciais locais de configuração e o diretório administrativo montado para escrita. Execute `init` uma única vez, depois de comprovar que tanto o domínio quanto o keyspace jamais emitiram códigos. Exija evidência externa de que é uma instalação virgem mesmo quando as duas tabelas estiverem vazias: um snapshot defasado ou a expiração dos vínculos pode ter eliminado toda a evidência local. Registre a origem do domínio e da instalação no inventário operacional. Na ausência dessa comprovação, mantenha a emissão bloqueada. O exemplo autoriza um milhão de IDs a partir de 14.776.336. Escolha o tamanho da janela considerando o volume de emissão e quantos IDs podem ser abandonados numa recuperação.
-
-```sh
-node dist/ids/recovery.js init 15776336
-```
-
-A API abre a emissão somente com parâmetros, geração e limites compatíveis. A leitura continua disponível se faltar a marca. Os avisos de capacidade saem no log de erro da API. Ao confirmar a última reserva, a réplica informa `Último bloco reservado`. Se o Cassandra aplicar a reserva e a resposta se perder, aquela criação devolve `503`. A leitura seguinte que encontrar `next_free >= authorized_until` informa `Faixa autorizada de IDs esgotada para novas reservas`. A posição incerta fica abandonada. Cada réplica em execução avisa uma vez pela mesma geração e teto. Uma nova autorização permite outro aviso. Elevar o teto preserva os blocos já confirmados. A CLI confirma a nova marca em armazenamento externo antes de aplicar o teto ao banco via LWT.
+Execute `init` uma única vez e somente com evidência externa de que **o domínio e o keyspace jamais emitiram links**. Tabelas vazias também podem resultar de restauração ou expiração. Sem histórico confiável, mantenha a emissão suspensa. Para uma instalação manual com as mesmas variáveis da API, os comandos administrativos usam `node dist/ids/recovery.js AÇÃO [TETO]`. Em uma instalação Compose com o diretório padrão existente e gravável pelo usuário administrativo da imagem, a função abaixo executa a CLI no contexto do próprio projeto:
 
 ```sh
-node dist/ids/recovery.js extend 16776336
+emissao() {
+  docker compose run --rm -T --no-deps \
+    -v "$PWD/state/emission:/run/emissao-admin:rw" \
+    -e EMISSION_MARKER_FILE=/run/emissao-admin/emission.json \
+    api node dist/ids/recovery.js "$@"
+}
 ```
 
-O maior teto exclusivo é 3.521.614.606.208. Uma réplica que ainda tem saldo local pode concluir as emissões desse bloco. Quando precisa de outro bloco e o teto está esgotado, a criação devolve `503` sem `Location`. GET e POST continuam resolvendo os vínculos ativos. Na instalação original íntegra, avalie ampliar o teto se ainda houver espaço no domínio.
+Ajuste a montagem se a marca estiver em outro diretório. O primeiro ID é 14.776.336 e o maior teto exclusivo é 3.521.614.606.208. Por exemplo, `emissao init 15776336` autoriza um milhão de posições em uma instalação virgem. Avalie quantas posições podem ser abandonadas em uma recuperação ao escolher o tamanho da janela.
 
-**Reprodução do alerta (T075).** A partir da raiz, `mise exec -- bash tests/ops/ci.sh` executa o teste de integração em Cassandra descartável. Para rodá-lo isoladamente, com as dependências instaladas e o CQL de um Cassandra de teste acessível nas variáveis `CASSANDRA_CONTACT_POINTS` e `CASSANDRA_PORT`, use os comandos abaixo. O teste cria e remove seu próprio keyspace.
-
-```sh
-mise exec -- npx --no-install tsc -p tsconfig.test.json
-mise exec -- node --test --test-name-pattern='a última reserva sem resposta' .test-dist/tests/integration/allocator.test.js
-```
-
-Em 23/11/2026, o teste manteve um vínculo ativo com uma posição livre e descartou apenas a resposta de uma LWT realmente aplicada no Cassandra 5.0.6. O banco confirmou `next_free=authorized_until` e apenas o vínculo anterior persistido. A tentativa seguinte gerou o aviso e `503` sem `Location`. Novas tentativas mantiveram o status sem repetir o aviso. GET e POST devolveram o mesmo `302`, destino com escapes, consulta e fragmento, e `Cache-Control: no-store`. Após ampliar o teto em uma posição, a reserva confirmada normalmente produziu `201` com um código novo e o aviso de último bloco da nova faixa.
+Na **origem íntegra**, `emissao extend 16776336` amplia esse teto em outro milhão. A CLI persiste a autorização externa antes de alterar a linha do banco com LWT. As APIs avisam no log ao reservar o último bloco ou encontrar a faixa esgotada. Um processo com saldo ainda pode usá-lo. Quando já não há blocos, novas reservas devolvem `503`. As leituras dos vínculos vigentes continuam disponíveis.
 
 ## Capturar uma cópia consistente
 
@@ -50,7 +42,7 @@ Faça snapshots dos nós Cassandra, arquive o esquema e copie os backups para ar
 
 Este procedimento cobre uma instalação de **um nó Cassandra 5.0.6 com RF 1**. A distribuição com vários nós segue o [procedimento de RF 3](#copiar-e-restaurar-um-keyspace-com-rf-3). [Snapshots do Cassandra](https://cassandra.apache.org/doc/stable/cassandra/managing/operating/backups.html) · [Importação de SSTables](https://cassandra.apache.org/doc/stable/cassandra/managing/operating/bulk_loading.html)
 
-Durante a cópia da demo, siga a suspensão de escritas acima e pare a única API para obter um ponto comum das duas tabelas. Reserve um diretório de backup protegido, com espaço suficiente, em armazenamento independente do volume de dados. Na raiz da distribuição, com o projeto de origem selecionado, execute em um shell com `set -eu`.
+Os exemplos de backup usam um host Linux, Bash, ferramentas GNU e o projeto Compose de origem. Defina `BACKUP_ROOT` com o caminho absoluto em mídia independente. Suspenda todas as escritoras para obter um ponto comum das tabelas.
 
 ```sh
 set -eu
@@ -60,6 +52,7 @@ TAG="encurtador-$(date -u +%Y%m%dT%H%M%SZ)"
 COPIA="${BACKUP_ROOT:?Defina o diretório externo de backups}/$TAG"
 mkdir -m 700 "$COPIA"
 docker compose stop api
+docker exec "$BANCO" cqlsh -e "DESCRIBE KEYSPACE $KS" > "$COPIA/esquema.cql"
 docker exec "$BANCO" nodetool snapshot --tag "$TAG" "$KS"
 for tabela in links reservations; do
   pasta=$(docker exec "$BANCO" sh -ec '
@@ -69,19 +62,21 @@ for tabela in links reservations; do
   ' sh "$KS" "$tabela" "$TAG")
   mkdir "$COPIA/$tabela"
   docker cp "$BANCO:$pasta/." "$COPIA/$tabela/"
+  test -s "$COPIA/$tabela/schema.cql" && test -s "$COPIA/$tabela/manifest.json" || exit 1
 done
-# Selecionado o projeto original, confira os volumes, a reserva e a marca antes de religar.
-docker compose start api
+(cd "$COPIA" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$COPIA.sha256"
+(cd "$COPIA" && sha256sum -c "$COPIA.sha256")
 ```
 
-A cópia inclui os componentes de cada SSTable e os arquivos `schema.cql` e `manifest.json`. Registre um código conhecido, destino, `created_at`, `expires_at`, `writetime(destination)` e o horário da consulta a `ttl(destination)`. Valide a cópia antes de liberar o espaço do snapshot local. Preserve separadamente a versão do esquema, o domínio, os parâmetros FF1, o segredo e a **última** marca externa. O teto externo pode avançar depois desse backup.
+Com as escritas ainda suspensas, registre um código de controle, destino, `created_at`, `expires_at`, `writetime(destination)` e o horário da consulta a `ttl(destination)`. Confira os componentes de SSTable listados no manifesto e os checksums na mídia. Após verificar a continuidade da origem, reinicie a API original com `docker compose start api`. Valide a cópia antes de liberar o espaço do snapshot local. Preserve separadamente o domínio, os parâmetros FF1, o segredo e a **última** marca externa, inclusive autorizações posteriores ao backup.
 
 ## Importar em armazenamento novo
 
-Antes de restaurar, isole as réplicas antigas, mantenha as APIs de destino fora de serviço e congele a marca externa atual conforme o procedimento de retomada abaixo. Se faltar a marca comprovada, mantenha o destino em leitura. Selecione o projeto de **destino** com Cassandra 5 e formato `storage_compatibility_mode: NONE`. Prepare um volume novo na instalação recuperada. Também se pode ensaiar com outro keyspace vazio no mesmo nó. O exemplo cria um keyspace novo no datacenter `datacenter1`. Use um nome CQL simples com letras minúsculas, números e sublinhado. Execute `CREATE KEYSPACE` sem `IF NOT EXISTS` para que um destino ocupado interrompa a operação. Guarde as duas cópias até a verificação.
+Antes de restaurar, isole as réplicas antigas, mantenha as APIs de destino fora de serviço e congele a marca externa atual conforme o procedimento de retomada abaixo. Se faltar a marca comprovada, mantenha o destino em leitura. Selecione o projeto de **destino** com Cassandra 5 e formato `storage_compatibility_mode: NONE`. Prepare um volume novo na instalação recuperada. Também se pode ensaiar com outro keyspace vazio no mesmo nó. O exemplo cria um keyspace novo no datacenter `datacenter1`. Use um nome CQL simples com letras minúsculas, números e sublinhado. Execute `CREATE KEYSPACE` sem `IF NOT EXISTS` para que um destino ocupado interrompa a operação. Confira que as definições das duas tabelas correspondem ao esquema arquivado. Guarde as duas cópias até a verificação.
 
 ```sh
 set -eu
+(cd "${COPIA:?informe o caminho absoluto do backup}" && sha256sum -c "$COPIA.sha256")
 BANCO_DESTINO=$(docker compose ps -q cassandra)
 DESTINO=${CASSANDRA_KEYSPACE:-encurtador}
 docker exec "$BANCO_DESTINO" cqlsh -e "CREATE KEYSPACE $DESTINO WITH replication={'class':'NetworkTopologyStrategy','datacenter1':1}"
@@ -96,10 +91,10 @@ for tabela in links reservations; do
 done
 ```
 
-Mantenha a hierarquia `diretório-temporário/keyspace/tabela/arquivos`. Nesta versão do Cassandra, um diretório fora da hierarquia pode resultar em uma importação vazia com saída zero. Consulte a tabela restaurada antes de permitir escritas. Troque `k7Q2aZ9` pelo código anotado no backup.
+Mantenha a hierarquia `diretório-temporário/keyspace/tabela/arquivos`. Nesta versão do Cassandra, um diretório fora da hierarquia pode resultar em uma importação vazia com saída zero. Consulte a tabela restaurada antes de permitir escritas. Defina `CODIGO_ANTERIOR` com o código Base62 anotado no backup.
 
 ```sh
-docker exec "$BANCO_DESTINO" cqlsh -k "$DESTINO" -e "SELECT destination, created_at, expires_at, writetime(destination), ttl(destination) FROM links WHERE code='k7Q2aZ9'"
+docker exec "$BANCO_DESTINO" cqlsh -k "$DESTINO" -e "SELECT destination, created_at, expires_at, writetime(destination), ttl(destination) FROM links WHERE code='${CODIGO_ANTERIOR:?informe o código do backup}'"
 docker exec "$BANCO_DESTINO" cqlsh -k "$DESTINO" -e "SELECT next_free, authorized_until, fingerprint, epoch FROM reservations WHERE installation='principal'"
 ```
 
@@ -107,7 +102,7 @@ Confira o destino, os instantes e o `writetime` originais e desconte do TTL anot
 
 ## Copiar e restaurar um keyspace com RF 3
 
-O exemplo usa Cassandra 5.0.6, um datacenter `datacenter1`, três nós em racks distintos, `NetworkTopologyStrategy` com RF 3 e `LOCAL_QUORUM` na API. Para reproduzir em hosts independentes, coloque cada nó em um domínio de falha distinto. Na estação administrativa, configure SSH, CQL, JMX e o streaming internó protegido de acordo com o cluster. A máquina de importação precisa alcançar os endereços anunciados por todos os nós de destino. O operador mantém o arquivo de marca em armazenamento durável externo ao anel e guarda os parâmetros FF1 em seu cofre.
+O exemplo usa Cassandra 5.0.6, um datacenter `datacenter1`, três nós em racks distintos, `NetworkTopologyStrategy` com RF 3 e `LOCAL_QUORUM` na API. Para reproduzir em hosts independentes, coloque cada nó em um domínio de falha distinto. Na estação administrativa, configure SSH, CQL, JMX e o streaming entre nós protegido de acordo com o cluster. A máquina de importação precisa alcançar os endereços anunciados por todos os nós de destino. O operador mantém o arquivo de marca em armazenamento durável externo ao anel e guarda os parâmetros FF1 em seu cofre.
 
 **Cópia com as escritas suspensas.** Siga o procedimento de backup planejado acima e confira a parada de todas as escritoras antes do primeiro repair. Preserve o anel original e sua marca habilitada. Mantenha todas as escritas suspensas até terminar as cópias dos três nós e as verificações. Registre a versão, o particionador, o esquema, datacenter/racks, os tokens e host IDs. Confirme todos os nós previstos em `UN` com `nodetool status encurtador` e o acordo de esquema com `nodetool describecluster`. Registre um código de controle, seu destino integral e a linha `principal`, inclusive a geração e os limites. Para a linha do código, guarde `created_at`, `expires_at`, `writetime(destination)`, `ttl(destination)` e o instante da consulta. Use `CONSISTENCY ALL` nesses controles.
 
@@ -207,7 +202,7 @@ Use o cache dedicado vazio e as APIs em leitura. GET e POST de resolução devem
 1. Retire da entrada todas as APIs que criam links. Com acesso de escrita ao diretório administrativo, execute `node dist/ids/recovery.js freeze`. Isso persiste o modo congelado, que também é verificado antes de consumir o próximo ID de um bloco em memória. Isole e encerre os processos antigos e aguarde as requisições em curso. Desabilite os reinícios automáticos dessas réplicas enquanto o cluster está em restauração.
 2. Restaure os vínculos, o estado do alocador e o segredo da instalação. Para consultar links durante a intervenção, inicie réplicas com `ISSUE_ENABLED=false`, com o cache da instalação vazio. Use uma nova instância Redis dedicada ou remova apenas as chaves do prefixo desta instalação. Confira um vínculo conhecido e compare o `Location` completo nas duas rotas.
 3. Obtenha a última marca externa comprovadamente durável, inclusive autorizações posteriores ao snapshot. Um arquivo anterior, uma marca de outro cluster ou apenas o `next_free` restaurado são insuficientes. Se o teto externo já era `62^7`, não existe faixa superior no domínio. O destino restaurado permanece em leitura, mesmo quando o snapshot mostra posições livres. Nunca reative manualmente o arquivo da marca para contornar o bloqueio. Sem a última marca, mantenha as réplicas em leitura. Preserve também o domínio, a chave, o tweak e o identificador da instalação. Nunca execute `init` para retomar um domínio que já emitiu links.
-4. Com a marca congelada e confirmada, selecione um novo teto superior ao teto externo anterior. Exemplo para uma instalação com teto anterior de 16.776.336, cujo domínio ainda possui espaço livre:
+4. Com a marca congelada e confirmada, selecione um novo teto superior ao teto externo anterior. Exemplo para uma instalação com teto anterior de 16.776.336, cujo domínio ainda possui espaço livre.
 
    ```sh
    node dist/ids/recovery.js resume 17776336
@@ -217,86 +212,3 @@ Use o cache dedicado vazio e as APIs em leitura. GET e POST de resolução devem
 5. Reinicie as réplicas de criação com `ISSUE_ENABLED=true`, teste uma criação e abra o link por outra réplica. Confira um vínculo anterior ao snapshot e que um código posterior ausente no backup permanece sem destino. Respostas `201` devem corresponder ao destino gravado. Durante o bloqueio ou após esgotamento, confirme `503` sem `Location` e `302` nos vínculos vigentes.
 
 Mantenha um único administrador atuando sobre o diretório. Uma trava `.lock` sobrevivente de interrupção exige confirmar que o processo administrador encerrou, conferir a marca e o banco, e só então remover a trava. A validade da marca depende do armazenamento externo e da ordem operacional. A restauração silenciosa de um snapshot com processos antigos ainda ativos quebra essas premissas.
-
-O ensaio `tests/integration/recovery.test.ts` restaura um snapshot lógico defasado em um keyspace descartável, consulta as rotas HTTP com o banco real, impede emissão quando a marca desaparece e consome as duas últimas posições do domínio. Ele mantém o cache frio.
-
-## Verificação local da distribuição em 23/11/2026
-
-Uma cópia limpa dos fontes gerou as imagens da API e do NGINX. Após `docker save` e `docker load`, o perfil da demo criou vínculos pela origem configurada. Em Cassandra 5.0.6 de nó único, as duas tabelas de um keyspace exclusivo foram copiadas para fora do contêiner e importadas em outro keyspace vazio. O destino com escapes, os dois timestamps, o `writetime` e a linha de reserva conferiram. Na comparação simultânea, as duas cópias indicaram 315.619.082 segundos de TTL restante. Com a marca congelada e o cache frio, o link do backup respondeu `302`, o link posterior ao snapshot respondeu `404` e criar respondeu `503`. Depois de `resume`, o primeiro ID veio da posição 16.776.336, o teto externo autorizado depois do snapshot.
-
-A expansão local para duas APIs com `LOCAL_QUORUM` e o NGINX distribuído manteve os digests das imagens carregadas e voltou a criar e redirecionar. A API usou `sha256:3e85b5ccb9daea1e7938a98d61266e7c0dbcd550c2cec5f255cb8748a2181faa` e o NGINX `sha256:f53ed544e5b09c4c853de0cc46a1ae79986656adefe9036f4b57e59043a908f7` nesta cópia. Ambas as APIs compartilharam o mesmo host e o nó Cassandra RF 1. A qualificação da VPS compartilhada, do failover entre hosts e da vazão de 24 h depende dos ensaios operacionais correspondentes.
-
-## Ensaio de restauração RF 3 em 23/11/2026
-
-O laboratório criou dois anéis Cassandra 5.0.6 sucessivos no Docker Desktop Linux ARM64, com 4 vCPUs e 3,58 GiB de RAM. Cada anel tinha três nós em contêineres, um volume exclusivo e oito tokens por nó, um datacenter e três racks. Os três host IDs e os 24 tokens do destino diferiram dos da origem. O fator foi 3 em ambos e a API leu e gravou em `LOCAL_QUORUM`. Cada instalação usou seu Redis dedicado. A marca externa, o segredo FF1 e o domínio ficaram fora dos seis volumes Cassandra. A API do destino usou a imagem `sha256:0e75a38ed88777bdfa23035ed064d77998a699acf063c408ff44ddd8c22ea4b8`. Os nós compartilharam uma máquina física. A repetição entre domínios de falha independentes permanece pendente.
-
-Neste ensaio de recuperação, o operador provocou uma troca de geração na origem e verificou o bloqueio por `freeze` e `503`. O teste de backup planejado, com a origem íntegra no teto máximo, está registrado a seguir. O processo foi parado. A cópia reuniu seis diretórios de snapshots dos três nós, com 60 arquivos conferidos por SHA-256. Voltar a emitir na origem com `resume 16776336` criou o código posterior `tDrelJA` na posição 15.776.336. O operador congelou a marca mais recente e desligou a origem.
-
-Em um cluster novo, o `sstableloader` inicialmente falhou ao tentar atualizar `Statistics.db` na mídia somente leitura. As duas tabelas de destino continuavam vazias. Na área gravável, os seis carregamentos concluíram. O checksum da cópia original voltou a passar. O repair das faixas primárias terminou nos três nós de cada anel. No destino, tanto o código de controle quanto a reserva tinham três endpoints e SSTables locais nos três proprietários.
-
-A leitura CQL com `ALL` confirmou o destino `https://origem.example/antes%2F?q=%2b#secao`, os dois timestamps, o `writetime(destination)` e a linha de reserva originais. O TTL caiu de 315.619.197 para 315.618.976 segundos nos 221 segundos transcorridos. Em ambas as consultas o instante calculado de expiração física foi o mesmo. O vencimento público preservado do código `0x9SwJX` foi **23/11/2036 às 06:26:44.689 UTC**.
-
-| Condição no destino | GET por código | POST de resolução |
-| --- | --- | --- |
-| Código do backup ativo, marca congelada | 302 | 302 |
-| Mesmo código, 1 ms antes do vencimento original | 302 | 302 |
-| Mesmo código, no vencimento original | 404 | 404 |
-| Código posterior ausente, antes e depois da retomada | 404 | 404 |
-| Código do backup e novo código, após retomada em horário corrente | 302 | 302 |
-
-Cada consulta começou com a chave correspondente ausente no Redis. Ambos os métodos retornaram `Cache-Control: no-store`. Os `302` preservaram o destino byte a byte e os `404` vieram sem `Location`. O POST de criação devolveu `503` enquanto a marca estava congelada. Após `resume 17776336`, o primeiro `201` entregou `XIEy7vw`. Decodificar esse código com os mesmos parâmetros FF1 confirmou a posição **16.776.336**, o teto durável posterior à cópia. O código perdido permaneceu sem vínculo.
-
-Para reproduzir a borda temporal, use duas instâncias sequenciais da API de laboratório com `ISSUE_ENABLED=false`. Monte o arquivo abaixo como `/tmp/relogio.mjs` e inicie o processo com `node --import /tmp/relogio.mjs dist/server.js`. Defina `LAB_MS` primeiro como o vencimento salvo em milissegundos Unix menos um e depois como o próprio vencimento. A alteração do relógio se aplica apenas ao processo Node. Em cada instância, remova a chave deste código do Redis de teste antes de cada método, faça GET e POST sem seguir redirects e compare com a tabela acima.
-
-```js
-import { mock } from 'node:test';
-mock.timers.enable({ apis: ['Date'], now: Number(process.env.LAB_MS) });
-```
-
-## Backup planejado no teto máximo · T056
-
-Em 23/11/2026, dois anéis Cassandra 5.0.6 RF 3 rodaram em sequência no mesmo Docker Desktop. Cada anel tinha três nós, três racks, oito tokens por nó e volumes próprios. A API usou `LOCAL_QUORUM` e `ID_BLOCK_SIZE=1`. Para reproduzir o estado inicial **em um domínio e keyspace de teste virgens**, execute a sequência administrativa abaixo antes de abrir a primeira API. Ela reserva para o ensaio as quatro últimas posições. O backup começa depois da primeira criação.
-
-```sh
-node dist/ids/recovery.js init 3521614606204
-node dist/ids/recovery.js freeze
-node dist/ids/recovery.js resume 3521614606208
-```
-
-Para repetir as verificações, inicie as APIs com a marca preparada e uma `PUBLIC_ORIGIN` HTTP que a estação de teste consiga acessar. Exporte no shell o mesmo `PUBLIC_ORIGIN`, `INSTALLATION_ID` e o `REDIS_URL` do Redis de laboratório. Na raiz do repositório, crie o primeiro vínculo. O verificador exige o status `201`.
-
-```bash
-set -euo pipefail
-antes='https://origem.example/antes%2F?q=%2b#secao'
-primeiro=$(python3 deploy/demo/verificar.py "$PUBLIC_ORIGIN" "$antes")
-```
-
-Execute a cópia planejada com os escritores parados. Após as conferências da origem, inicie as APIs com o mesmo banco e a mesma marca. No mesmo shell, crie outro vínculo. Para conferir cada rota com cache frio, o exemplo usa `redis-cli` no Redis do laboratório e curl 7.84 ou superior, que permite ler um cabeçalho com `%header`.
-
-```bash
-depois='https://origem.example/posterior%2F?q=%2b#secao'
-segundo=$(python3 deploy/demo/verificar.py "$PUBLIC_ORIGIN" "$depois")
-test "$primeiro" != "$segundo"
-verificar_frio() {
-  local curto=$1 destino=$2 chave="${INSTALLATION_ID:?}:${1##*/}" resultado metodo
-  local formato=$'%{response_code}\n%header{location}\n%header{cache-control}'
-  for metodo in GET POST; do
-    redis-cli -u "$REDIS_URL" DEL "$chave" > /dev/null
-    test "$(redis-cli -u "$REDIS_URL" EXISTS "$chave")" = 0
-    if [[ $metodo == GET ]]; then
-      resultado=$(curl -q -sS --max-time 30 -o /dev/null -w "$formato" "$curto")
-    else
-      resultado=$(curl -q -sS --max-time 30 -o /dev/null -w "$formato" --json "{\"short_url\":\"$curto\"}" "$PUBLIC_ORIGIN/api/v1/redirecionar")
-    fi
-    test "$resultado" = "$(printf '302\n%s\nno-store' "$destino")"
-  done
-}
-verificar_frio "$primeiro" "$antes"
-verificar_frio "$segundo" "$depois"
-```
-
-A origem respondeu `201` com `LxCQ2R2` na posição 3.521.614.606.204. Com todas as escritoras paradas, o repair e os snapshots dos três nós produziram seis conjuntos de SSTables e 60 arquivos verificados por SHA-256. O teto exclusivo era 3.521.614.606.208 e `next_free` permaneceu em 3.521.614.606.205 durante a cópia. O operador conferiu os volumes, as identidades e os instantes de partida dos três nós, a linha `principal` e o checksum da marca habilitada. Os processos do banco continuaram ativos.
-
-Ao religar a API na própria origem, o POST retornou `201` com `S0RenFF`. A decodificação FF1 confirmou a posição 3.521.614.606.205. O teto e a geração permaneceram iguais. Com a chave removida do Redis antes de cada rota, os GET e POST de `LxCQ2R2` devolveram `302` com `Location: https://origem.example/antes%2F?q=%2b#secao`. Para `S0RenFF`, devolveram `302` com `Location: https://origem.example/posterior%2F?q=%2b#secao`. As quatro respostas incluíram `Cache-Control: no-store`.
-
-Para testar o desastre, a origem foi isolada e o segundo anel recebeu os snapshots. O destino usou um diretório administrativo próprio com a cópia verificada da última marca externa. O operador executou `freeze` nesse diretório antes de importar e confirmou `enabled=false`. A marca original permaneceu habilitada e com o mesmo checksum. O clone tinha `next_free=3521614606205`, posição já usada depois do backup na origem. Com o cache frio, o código do snapshot entregou `302` nas duas rotas e o código posterior retornou `404` nas duas. A criação devolveu `503` sem `Location`. A CLI recusou tanto a retomada no teto existente quanto um limite superior ao domínio. Uma nova tentativa de criação manteve o `503` e a reserva continuou idêntica à do snapshot.

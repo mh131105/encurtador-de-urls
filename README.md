@@ -1,102 +1,72 @@
 # Encurtador de URLs
 
-Um serviço auto-hospedado para criar links curtos no seu domínio. Cole uma URL na página inicial ou envie-a pela API. O serviço confirma a gravação no Cassandra e devolve um código de sete caracteres que continua apontando para o mesmo destino por dez anos civis. Quem cria ou abre um link pode usar o serviço sem cadastro.
+[**Ver a demonstração**](#demonstração) · [Instalar](#instalar) · [Arquitetura](docs/arquitetura.md) · [Docker Hub](https://hub.docker.com/r/mh131105/encurtador-de-urls)
 
-A aplicação e a distribuição foram verificadas localmente. A medição na VPS compartilhada, o teste de falha entre hosts e a campanha de carga de 24 horas aguardam infraestrutura.
+Crie links curtos no seu próprio domínio. Cole um endereço na página e compartilhe o link gerado. Ele usa um código de sete caracteres e leva ao destino original, inclusive à seção indicada depois de `#`. Qualquer pessoa pode criar ou abrir um link sem cadastro.
 
-## Demonstração da API
+O projeto também serve para estudar sistemas distribuídos. A mesma aplicação pode rodar em uma máquina com Docker ou usar várias réplicas da API e distribuir os dados entre nós do Apache Cassandra.
 
-Com a instalação local em execução, crie um link para um destino que contém um acento, escapes, consulta e fragmento. O POST responde com `201 Created` e um JSON como `{"short_url":"http://localhost:8080/k7Q2aZ9"}`. O comando abaixo guarda o código emitido pela sua instalação.
+## Demonstração
+
+Em 29 segundos, o vídeo mostra como colar uma URL, criar o link curto e abri-lo. O navegador chega à seção **Resultados e recorte** do projeto Amazônia nas Provas. A gravação usa as imagens públicas do encurtador e tem legendas em português.
+
+https://github.com/user-attachments/assets/d79db049-1f06-4855-879f-2e46681573fb
+
+[Baixar o vídeo (MP4)](https://github.com/mh131105/encurtador-de-urls/releases/download/v0.1.0/demonstracao.mp4) · [Abrir a página de destino](https://github.com/mh131105/amazonia-nas-provas#resultados-e-recorte)
+
+## Instalar
+
+Você precisa do Docker com o Compose 2.24.0 ou mais recente. Os comandos abaixo são para um terminal de Linux ou macOS. No Windows, use o terminal do WSL com a integração do Docker Desktop habilitada. O guia explica os pré-requisitos, a troca da porta e a configuração de um domínio. [Guia de instalação](docs/instalacao.md)
+
+### Usar as imagens prontas do Docker Hub
+
+Este caminho dispensa Git, Node.js e compilação. Baixe o pacote da versão 0.1.0 e inicie o serviço na sua máquina.
 
 ```sh
-BASE=http://localhost:8080
-CURTO=$(curl -fsS -H 'Content-Type: application/json' \
-  -d '{"url":"https://loja.example/café%2Fpedido?q=mão%2b#índice"}' \
-  "$BASE/api/v1/encurtar" | python3 -c 'import json,sys; print(json.load(sys.stdin)["short_url"])')
-printf '%s\n' "$CURTO"
-curl -si "$CURTO"
-curl -si -H 'Content-Type: application/json' \
-  -d "{\"short_url\":\"$CURTO\"}" "$BASE/api/v1/redirecionar"
+curl -fLO https://github.com/mh131105/encurtador-de-urls/releases/download/v0.1.0/encurtador-0.1.0.tar.gz
+tar -xzf encurtador-0.1.0.tar.gz
+cd encurtador-0.1.0
+bash scripts/iniciar.sh
 ```
 
-As duas consultas devolvem o mesmo redirecionamento. Os escapes `%2F` e `%2b` mantêm a grafia original, e o navegador pode usar o fragmento para abrir a seção certa.
+O pacote contém a configuração. O Docker baixa as imagens da API e da página, além do Cassandra e do Redis. [API no Docker Hub](https://hub.docker.com/r/mh131105/encurtador-de-urls) · [Página no Docker Hub](https://hub.docker.com/r/mh131105/encurtador-de-urls-web)
 
-```http
-HTTP/1.1 302 Found
-Cache-Control: no-store
-Location: https://loja.example/caf%C3%A9%2Fpedido?q=m%C3%A3o%2b#%C3%ADndice
-```
+### Clonar e compilar o projeto
 
-## Funcionalidades
-
-- **Página de criação.** Depois da confirmação, o formulário exibe o link e permite copiá-lo pelo teclado. Se o navegador bloquear a área de transferência, o campo seleciona o endereço inteiro para cópia manual.
-- **Links independentes.** Duas criações para o mesmo destino recebem códigos diferentes. Letras maiúsculas e minúsculas distinguem códigos. Um código vencido nunca é reatribuído.
-- **Destinos internacionais.** A API aceita endereços HTTP e HTTPS com ideogramas, acentos e emoji. O Cassandra guarda o texto original e a resolução o representa em um cabeçalho HTTP válido.
-- **Leitura com falhas de cache.** Se o Redis falhar, a API consulta o Cassandra. Um vínculo ausente ou vencido recebe `404`. Se a leitura persistente falhar sem um resultado válido no cache, a resposta é `503`.
-
-## Tecnologias e decisões
-
-| Componente | Decisão |
-| --- | --- |
-| Node.js e TypeScript | A API usa o servidor HTTP nativo e concentra a lógica de resolução das duas rotas. Os testes de contrato exercitam status, cabeçalhos e destino. |
-| Apache Cassandra e FF1 | O banco guarda cada vínculo pela chave curta e reserva blocos de identificadores para as réplicas. A permutação FF1 com AES produz códigos Base62 sem expor a sequência. Uma marca externa evita reutilizar faixas após restauração. |
-| Redis | Guarda cópias de vínculos ativos. O vencimento também é conferido pela aplicação a cada leitura. |
-| React, Astryx, Vite e NGINX | React e Astryx compõem o formulário. O Vite gera os arquivos estáticos e o NGINX serve a página e encaminha a API pela mesma origem. |
-
-As decisões sobre retenção, emissão e operação distribuída têm seus critérios de aceite no repositório. [PRD](PRD.md) · [Especificação](specs/001-encurtador/spec.md) · [Plano técnico](specs/001-encurtador/plan.md)
-
-## Executar localmente
-
-Clone o repositório em uma máquina com Git, Bash, Docker Engine com Compose v2 e OpenSSL.
+Use este caminho para examinar ou modificar o código. O Docker compila a API e a página a partir dos arquivos do clone.
 
 ```sh
 git clone https://github.com/mh131105/encurtador-de-urls.git
 cd encurtador-de-urls
+bash scripts/iniciar.sh --build
 ```
 
-Na raiz do projeto, os comandos abaixo criam uma **instalação nova** em `http://localhost:8080`. O Cassandra e o Redis rodam em contêineres e os dados ficam em volumes do Compose. As etiquetas `0.1.0` identificam as imagens construídas localmente.
+## Usar o encurtador
+
+1. Abra [localhost:8080](http://localhost:8080/) no computador em que instalou o serviço.
+2. Cole o endereço completo em **URL de destino** e clique em **Encurtar**.
+3. Clique no link gerado para abrir o destino ou em **Copiar** para guardá-lo.
+
+Um link que começa com `localhost` funciona no computador da instalação. Para compartilhá-lo com outras pessoas, configure o domínio e o HTTPS antes de criar os links que pretende distribuir. Eles usam o endereço definido em `PUBLIC_ORIGIN`. [Instalação e domínio próprio](docs/instalacao.md)
+
+Para parar e retomar o serviço, use `docker compose stop` e `docker compose start` na mesma pasta. Os links dependem dos volumes de dados, da chave em `api.env` e do diretório `state/emission/`. [Backup e recuperação](deploy/ha/recuperacao.md)
+
+### Criar um link pela API
 
 ```sh
-docker build -t "${API_IMAGE:-encurtador-api:0.1.0}" .
-docker build -f deploy/nginx/Dockerfile -t "${NGINX_IMAGE:-encurtador-nginx:0.1.0}" .
-
-# Gere a chave uma vez. O shell recusa sobrescrever api.env.
-(umask 077; set -C; { printf 'FF1_KEY='; openssl rand -hex 32; printf 'INSTALLATION_ID=encurtador-local\n'; } > api.env)
-export COMPOSE_PROFILES=cassandra,redis
-export PUBLIC_ORIGIN=http://localhost:8080
-export EMISSION_MARKER_DIR="$PWD/state/emission"
-mkdir -p "$EMISSION_MARKER_DIR"
-docker compose config --quiet
-docker compose up -d cassandra redis
-until docker compose exec -T cassandra cqlsh -e 'SELECT release_version FROM system.local' >/dev/null 2>&1; do sleep 2; done
-docker compose exec -T cassandra cqlsh < deploy/cassandra/demo.cql
-docker compose exec -T cassandra cqlsh -k encurtador < deploy/cassandra/schema.cql
-docker compose run --rm -T --no-deps --user 0 -v "$EMISSION_MARKER_DIR:/run/emissao-admin:rw" api chown node:node /run/emissao-admin
-docker compose run --rm -T --no-deps -v "$EMISSION_MARKER_DIR:/run/emissao-admin:rw" -e EMISSION_MARKER_FILE=/run/emissao-admin/emission.json api node dist/ids/recovery.js init 15776336
-docker compose up -d api nginx
+curl -i http://localhost:8080/api/v1/encurtar \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://github.com/mh131105/amazonia-nas-provas#resultados-e-recorte"}'
 ```
 
-Abra `http://localhost:8080/` e use **Encurtar**. Para interromper e retomar a mesma instalação, use `docker compose stop` e `docker compose start`, no mesmo diretório e com as mesmas variáveis. Conserve os volumes, `api.env`, o domínio e `state/emission`. [Configuração e operação](docs/guia-local.md#configuração-e-operação) · [Backup e recuperação](deploy/ha/recuperacao.md)
+O serviço responde `201 Created` com o endereço em `short_url`. Abra esse endereço com o navegador ou consulte-o com `curl -i` para ver o `302` e o destino em `Location`. A rota `POST /api/v1/redirecionar` também aceita o JSON com `short_url` e devolve o mesmo redirecionamento. Um link desconhecido ou vencido recebe `404`.
 
-## Verificar
+## Como funciona
 
-Para conferir o exemplo acima, use `curl` e Python 3. Para repetir a suíte integrada, use Node.js 24.22.3 com npm, Bash, Python 3, OpenSSL e Docker Compose. O script cria um projeto descartável, testa o formulário no navegador e as duas rotas com NGINX, Cassandra e Redis reais. Ao terminar, remove os contêineres e os volumes desse projeto de teste.
+O Cassandra confirma a gravação antes de a API entregar o link. O vínculo é imutável e vence após dez anos civis. O Redis acelera as consultas repetidas. Se ele ficar indisponível, a API busca o destino no Cassandra.
 
-```sh
-npm --prefix web ci
-./web/node_modules/.bin/playwright install --with-deps chromium
-bash tests/ops/ci.sh
-```
+O guia de arquitetura explica como as réplicas emitem códigos distintos, como o banco distribui os vínculos e quais falhas cada topologia tolera. A instalação local e a recuperação de dados foram exercitadas. A vazão de produção e a tolerância à perda de um host ainda dependem de ensaios em infraestrutura independente. [Arquitetura](docs/arquitetura.md) · [Topologia distribuída](deploy/ha/topologia.md) · [Medições da instalação local](deploy/demo/qualificacao.md)
 
-No macOS com o Google Chrome instalado, você também pode usar `PLAYWRIGHT_CHANNEL=chrome bash tests/ops/ci.sh` após instalar as dependências de `web/`. O guia reúne os comandos para testar só o formulário, as rotas ou a recuperação e registra as medições locais. [Guia local](docs/guia-local.md) · [CI do repositório](.github/workflows) · [Testes de contrato](tests/contract)
+## Desenvolvimento e licença
 
-## Limitações e próximos ensaios
-
-- **VPS compartilhada.** Em uma VM de 2 GiB com um serviço vizinho sintético, a pilha completa atingiu 1.105,68 MiB no reinício e o host manteve pelo menos 548,64 MiB disponíveis. A definição dos limites para a VPS depende da medição com os serviços reais. [Qualificação da demo](deploy/demo/qualificacao.md)
-- **Alta disponibilidade e carga.** A amostra local confirmou dez criações e cem resoluções, todas para o destino esperado. Continuam pendentes o ensaio de perda de hosts independentes e a campanha de 24 horas para a meta de 100 milhões de criações e 1 bilhão de resoluções. [Roteiro de failover](tests/ops/failover.md) · [Relatório de carga](tests/load/relatorio.md) · [Aceites pendentes](specs/001-encurtador/tasks.md)
-
-## Autoria, créditos e licenças
-
-O mantenedor [@mh131105](https://github.com/mh131105) definiu as decisões de produto. A implementação, os testes e a documentação tiveram apoio do Codex, seguindo o fluxo de desenvolvimento por especificação do GitHub Spec Kit. A interface usa a biblioteca Astryx, da Meta. [GitHub Spec Kit](https://github.com/github/spec-kit) · [Astryx](https://github.com/meta/astryx)
-
-A aplicação usa Apache-2.0. As skills, os scripts, os modelos e o fluxo integrado provenientes do GitHub Spec Kit usam a licença MIT. [Licença da aplicação](LICENSE) · [Licença do GitHub Spec Kit](docs/licencas/spec-kit-MIT.txt)
+O código e as instruções para rodar os testes estão disponíveis para contribuições. Matheus Garcia mantém o projeto, desenvolvido com apoio do Codex. [Perfil do mantenedor](https://github.com/mh131105) · [Guia de contribuição](CONTRIBUTING.md) · [Licença Apache-2.0](LICENSE)

@@ -1,4 +1,4 @@
-// T039. As entradas NGINX usam APIs de teste que encerram a conexão após receber o corpo.
+// As entradas NGINX usam APIs de teste que encerram a conexão após receber o corpo.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';

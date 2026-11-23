@@ -10,9 +10,9 @@ Use a mesma imagem da API e a mesma imagem dos estáticos nos dois lados. Regist
 | Redis | Endpoint privado com prefixo por instalação. Cada réplica volta a consultar o Cassandra quando o cache está indisponível. |
 | Emissão e cópias | Monte em todas as APIs o mesmo diretório de emissão, servido por armazenamento durável e redundante fora do cluster Cassandra, em domínios de falha distintos. O armazenamento precisa continuar acessível e apresentar a última versão confirmada após a perda de qualquer um dos hosts. Serialize a escrita administrativa, com rename atômico, fsync e visibilidade coerente em todos os leitores. Cada criação relê a marca, inclusive quando ainda há IDs no bloco local. Perder o único servidor do diretório bloqueia imediatamente a criação. Teste a continuidade de acesso à marca e a restauração antes de reabrir emissão. |
 
-Prepare o keyspace com `deploy/cassandra/ha.cql` e o esquema com `deploy/cassandra/schema.cql`. O arquivo de topologia usa `datacenter1`; confira o nome real em `system.local` e em `nodetool status`. Ative `storage_compatibility_mode: NONE` nos nós Cassandra 5 de uma implantação nova. As réplicas devem estar prontas antes de receber tráfego. Consulte `/internal/live` e `/internal/ready` diretamente pela rede privada das APIs. O NGINX recusa essas rotas na entrada pública.
+Prepare o keyspace com `deploy/cassandra/ha.cql` e o esquema com `deploy/cassandra/schema.cql`. O arquivo de topologia usa `datacenter1`. Confira o nome real em `system.local` e em `nodetool status`. Ative `storage_compatibility_mode: NONE` nos nós Cassandra 5 de uma implantação nova. As réplicas devem estar prontas antes de receber tráfego. Consulte `/internal/live` e `/internal/ready` diretamente pela rede privada das APIs. O NGINX recusa essas rotas na entrada pública.
 
-Na máquina de build, gere `encurtador-nginx:0.1.0` com `docker build -f deploy/nginx/Dockerfile -t encurtador-nginx:0.1.0 .`. A imagem contém `/`, os bundles de `/assets/` e as regras compartilhadas das duas topologias. Em cada entrada, monte apenas `deploy/ha/nginx.conf` como `/etc/nginx/nginx.conf:ro`. Mantenha `/etc/nginx/encurtador-rotas.conf` da imagem. Valide no host com os nomes das APIs disponíveis e rode o ensaio de rotas da distribuição antes do failover.
+Use nas duas entradas a imagem NGINX da mesma distribuição escolhida na [instalação](../../docs/instalacao.md). A imagem contém `/`, os bundles de `/assets/` e as regras compartilhadas das duas topologias. Em cada entrada, monte apenas `deploy/ha/nginx.conf` como `/etc/nginx/nginx.conf:ro`. Mantenha `/etc/nginx/encurtador-rotas.conf` da imagem. Valide no host com os nomes das APIs disponíveis e rode o ensaio de rotas da distribuição antes do failover.
 
 Para verificar o quórum, a capacidade de continuar após perda de um host e o tempo de recuperação, siga o [ensaio de failover](../../tests/ops/failover.md) em infraestrutura dedicada.
 
@@ -39,7 +39,7 @@ docker run -d --name encurtador-entrada --restart unless-stopped \
   --add-host api-a:10.40.0.11 --add-host api-b:10.40.0.12 \
   -p "${ENTRADA_IP}:80:80" \
   -v "$PWD/deploy/ha/nginx.conf:/etc/nginx/nginx.conf:ro" \
-  "${NGINX_IMAGE:-encurtador-nginx:0.1.0}"
+  "${NGINX_IMAGE:?defina a imagem da distribuição}"
 docker exec encurtador-entrada nginx -t
 for replica in api-a api-b; do
   docker exec encurtador-entrada wget -Y off -S -O /dev/null "http://$replica:3000/internal/ready" || exit 1
@@ -47,43 +47,6 @@ done
 ```
 
 Exija `200` das duas APIs em cada entrada antes de liberar o tráfego. Na troca de um IP fixado por `--add-host`, recrie a entrada com o novo mapeamento.
-
-### Laboratório de rede em um host Linux (T072)
-
-Use Docker Engine local em Linux e uma instalação **descartável**, preparada pelo [guia da demo](../../docs/guia-local.md#subir-a-página-e-conservar-os-links), com o Cassandra RF 1, o Redis, a marca de emissão e as imagens já disponíveis. Reserve `127.0.0.2:3000`, `127.0.0.3:3000` e `127.0.0.1:18072`. Na mesma raiz e com o mesmo projeto e ambiente da demo de teste, execute os comandos em Bash. As duas APIs compartilham a bridge padrão do projeto, o banco e a marca. A [entrada do laboratório](laboratorio.yaml) usa a rede do host e resolve os dois nomes pelos IPs onde o Docker publicou as portas. Seu NGINX usa o arquivo de HA com o listener em `127.0.0.1:18072`.
-
-```sh
-set -eu
-export COMPOSE_FILE=compose.yaml:deploy/ha/api-privada.yaml:deploy/ha/laboratorio.yaml
-export API_PRIVATE_IP=127.0.0.2 PUBLIC_ORIGIN=http://127.0.0.1:18072
-docker compose config --quiet
-docker compose up -d api api-b entrada-rede
-for replica in api-a api-b; do
-  sonda="http://$replica:3000/internal/ready"
-  for ((tentativa=1; tentativa<=30; tentativa++)); do
-    if docker compose exec -T entrada-rede wget -Y off -T 2 -q -O /dev/null "$sonda"; then break; fi
-    sleep 1
-  done
-  docker compose exec -T entrada-rede wget -Y off -T 2 -S -O /dev/null "$sonda"
-done
-node tests/ops/redirecionamento.mjs "$PUBLIC_ORIGIN"
-for rota in live ready metrics; do
-  status=$(curl --noproxy '*' --max-time 10 -sS -o /dev/null -w '%{http_code}' "$PUBLIC_ORIGIN/internal/$rota")
-  test "$status" = 404
-done
-docker compose stop entrada-rede api-b api
-```
-
-O cliente de ensaio exige três criações com `201` pela entrada. No GET do código e no POST de resolução, lê a resposta sem seguir o redirecionamento e exige `302`, `Cache-Control: no-store` e o `Location` completo com escapes, consulta e fragmento. A última conferência exige `404` para as três rotas internas na mesma origem pública.
-
-**Resultado em um host Linux.** Em 23/11/2026, o roteiro acima rodou no Docker Engine 29.5.2 com Compose 2.40.3 e os dois processos de API separados. A entrada em rede do host obteve `200` nas duas sondas privadas. As três rotas internas devolveram `404` pela origem pública. Uma consulta CQL ao keyspace descartável antes e depois de executar o cliente confirmou três vínculos adicionais (6 → 9). Os três tamanhos de `Location` estão na [descrição do ensaio](#provas-locais-de-configuração).
-
-**Resultado entre dois hosts Linux.** No mesmo computador físico, duas VMs Alpine usaram kernels e daemons Docker distintos, ligados por um switch virtual privado. Em uma VM, duas APIs em projetos separados compartilharam Cassandra 5.0.6 RF 1, Redis 7.4.6 e a marca de emissão. Na outra, duas entradas NGINX resolveram os IPs privados das APIs usando o arquivo de HA. As imagens foram `sha256:66d75cb5e38cdcffe490ca94aec9e238c3e2f8d71845116989deb3fc88228694` (API) e `sha256:40f11fee7813a8425918a767fc8f662b9bb013bbed19ffea9eb72623089c1f8d` (NGINX), também usadas no ensaio de um host.
-
-Antes de publicar as portas, as APIs estavam prontas dentro de seus contêineres. Os nomes resolviam nas entradas, mas as quatro tentativas de conexão a `api-a:3000` e `api-b:3000` foram recusadas. Com o complemento de produção, o Docker publicou `172.27.72.11:3000` e `172.27.72.12:3000` na interface privada. As quatro sondas passaram. A leitura de métricas a partir das entradas confirmou dois processos distintos. A porta 3000 na outra interface da VM das APIs continuou inacessível.
-
-As duas entradas publicaram a porta 80 nos seus IPs privados, `172.27.72.21` e `172.27.72.22`. Um cliente no outro host usou a mesma origem `http://curto.test` nas duas. O POST de criação pela primeira devolveu `201`. Cada entrada devolveu `302` nas duas rotas, com `Cache-Control: no-store` e `Location: https://loja.example/pedido%2F72?cor=azul%20claro&x=%2b#privado`. As consultas públicas a `/internal/live`, `/internal/ready` e `/internal/metrics` devolveram seis `404` com `no-store` e sem `Location`. A perda de um host continua sujeita ao ensaio T025 em infraestrutura independente.
-
 
 ## Expandir o keyspace existente de RF 1 para RF 3
 
@@ -116,10 +79,6 @@ Faça a migração numa janela de manutenção. Calcule espaço para três cópi
 
 5. Aplique e confira os três endereços e `LOCAL_QUORUM` em **cada** API pelo [procedimento de configuração das réplicas](#aplicar-a-consistência-em-cada-réplica). Use as mesmas imagens e a marca externa da demo. Depois que ambas as sondas privadas de prontidão responderem `200`, aponte a entrada da mesma origem para essas APIs. Remova do Redis apenas a chave do código de teste antes de cada consulta (`DEL <INSTALLATION_ID>:<codigo>`). Pelo GET e pelo POST público, confira o `302`, o `Location` original e `Cache-Control: no-store`. Crie outro link, confira o `201` e repita a leitura pela outra API com cache frio. Guarde os resultados junto da listagem do anel, dos repairs e da versão das imagens.
 
-**Ensaio T047 em 23/11/2026.** Um único Docker Desktop executou o Cassandra 5.0.6 em três contêineres, cada qual em um rack lógico e volume próprios. Quatro destinos com escapes, consulta e fragmento foram criados e confirmados antes da expansão; o alocador já havia reservado dois blocos. O `ALTER` mudou o keyspace populado de RF 1 para RF 3. Cada repair completo terminou com sucesso. Os três nós informaram RF 3, `UN` e uma réplica para o código consultado. Uma leitura a `ALL` conferiu os quatro vínculos, `created_at`, `expires_at`, `writetime` e a reserva contra os valores anteriores. O arquivo externo também conservou seu SHA-256.
-
-Na mesma origem pública, os quatro links antigos e os dois criados pelas APIs pós-expansão passaram pelo GET e pelo POST sem seguir o redirecionamento, esvaziando a chave testada antes de cada leitura. As duas APIs, com o mesmo digest e `LOCAL_QUORUM`, devolveram o destino correto aos clientes da outra réplica. O primeiro código novo correspondeu a 14.776.342, o `next_free` anterior à migração. A perda de um host e a vazão de 24 h continuam reservadas aos ensaios em infraestrutura independente.
-
 ## Aplicar a consistência em cada réplica
 
 Mantenha a entrada em manutenção até concluir a verificação nos dois hosts. No Compose do repositório, os contact points são interpolados em `environment` e a consistência é lida do arquivo indicado por `API_ENV_FILE` (padrão `api.env`). Se exportar apenas `CASSANDRA_CONSISTENCY` no shell, uma API cujo arquivo omite a variável usará o padrão `ONE`.
@@ -151,25 +110,17 @@ JS
 conferir_cassandra db-a,db-b,db-c LOCAL_QUORUM
 ```
 
-No controle da demo local, execute `conferir_cassandra cassandra ONE`. Se qualquer réplica informar `ONE` no perfil RF 3 ou endereços diferentes dos três aprovados, mantenha a entrada fechada. Confira o caminho de `API_ENV_FILE` e o valor de `CASSANDRA_CONTACT_POINTS` desse projeto, corrija a linha no arquivo de ambiente e repita a recriação e a conferência. Só reabra a entrada depois de obter sucesso nos dois hosts, concluir a verificação do anel e receber `200` em `/internal/ready` de cada API.
-
-**Ensaio T069 em 23/11/2026.** Duas APIs iniciadas separadamente pelo Compose usaram o digest de imagem `sha256:ae04a922e924b18591854b2149445edf20e3b376731632fee08f1c28f726f80e`. Exportar as duas variáveis no shell com a consistência ausente do arquivo produziu `db-a,db-b,db-c` e `ONE` nas duas. A conferência de `LOCAL_QUORUM` encerrou com código 1 em ambas. Com a linha no arquivo e as duas APIs recriadas, o mesmo comando informou os três contact points e `LOCAL_QUORUM` e encerrou com código zero em cada uma. O controle da demo devolveu `cassandra` e `ONE`. Este ensaio verificou a configuração efetiva das imagens. A distribuição de dados e as leituras e gravações em RF 3 foram exercitadas no ensaio T047 descrito acima.
-
-## Provas locais de configuração
-
-Em 23/11/2026, a configuração desta entrada passou em `nginx -t` com duas APIs reais em contêineres distintos no mesmo host. `/internal/live` e `/internal/ready` devolveram `200` nas duas APIs. Uma criação e duas resoluções passaram pela entrada com o destino original `https://ha.example/a%2Fb?q=%2f#ancora`. Os contadores privados mostraram uma criação e uma leitura na primeira API e uma leitura na segunda. O banco do ensaio funcional tinha um único nó. O CQL de HA aplicado num keyspace isolado produziu `NetworkTopologyStrategy`, `datacenter1=3`; o banco avisou que havia somente um nó.
-
-Em 23/11/2026, o teste de perda da confirmação enviou um POST público válido em cada configuração de entrada. A API de teste leu o corpo inteiro e encerrou a conexão antes de responder. Tanto na demo quanto em HA, as APIs somadas receberam o POST uma vez e o cliente recebeu `503`, `Cache-Control: no-store` e nenhum `Location`. A prova usa NGINX real e falha controlada da API. O [ensaio entre hosts](../../tests/ops/failover.md) continua pendente.
-
-Execute a partir da raiz, com as imagens construídas pelo [procedimento de instalação](../../README.md#executar-localmente). O primeiro comando inicia as duas entradas e os servidores de teste em um projeto Docker temporário, confere os registros das réplicas e encerra o projeto. Para o segundo, use a origem pública de uma instalação de teste já em execução.
+Abra a entrada depois de conferir o quórum, a configuração efetiva das duas APIs e a resposta `200` de ambas em `/internal/ready`. Verifique a criação por uma réplica e as duas formas de resolução pela outra. Para exercitar o encaminhamento em um host Linux, use uma instalação **descartável** com Cassandra e Redis já iniciados, marca compartilhada e `PUBLIC_ORIGIN=http://127.0.0.1:18072`. A [configuração de laboratório](laboratorio.yaml) mapeia as duas APIs em IPs de loopback e monta a entrada na rede do host. Depois da prontidão das duas réplicas, o cliente HTTP verifica as duas formas de resolução pela entrada.
 
 ```sh
-node tests/ops/proxy-post.mjs
+export COMPOSE_FILE=compose.yaml:deploy/ha/api-privada.yaml:deploy/ha/laboratorio.yaml
+export API_PRIVATE_IP=127.0.0.2 PUBLIC_ORIGIN=http://127.0.0.1:18072
+docker compose up -d api api-b entrada-rede
+for api in api-a api-b; do
+  docker compose exec -T entrada-rede wget -Y off -O /dev/null "http://$api:3000/internal/ready" || exit 1
+done
 node tests/ops/redirecionamento.mjs "$PUBLIC_ORIGIN"
+docker compose stop entrada-rede api-b api
 ```
 
-Cada execução de `redirecionamento.mjs` exige **três criações confirmadas** com `201`. A primeira usa um destino ASCII de 12 KiB. As outras duas usam corpos JSON de exatamente 1 MiB, um com destino ASCII e outro com acentos. Para cada código, o GET e o POST devem devolver `302`, `Cache-Control: no-store` e o `Location` completo. No terceiro vínculo, o cliente verifica nas duas rotas a expansão de cada `é` para `%C3%A9`, com os escapes, a consulta e o fragmento preservados. O ensaio HA com as imagens de T072 mediu cabeçalhos de 12.288, 1.048.566 e 3.145.570 bytes, respectivamente, no GET e no POST. Essas três criações também compõem as cinco do [ciclo completo da demo](../demo/qualificacao.md#reproduzir-o-ensaio-leve).
-
-Na verificação dos estáticos em ambas as entradas, o asset apontado pelo HTML respondeu `200` com e sem consulta. O mesmo nome precedido por barra duplicada, segmento de ponto ou escape no prefixo respondeu `404`, com `Cache-Control: no-store` e sem `Location`.
-
-Em 23/11/2026, a CI criou dois vínculos no Cassandra e os confirmou pela API publicada. Com prazo HTTP de 90 s e atraso de leitura controlado no servidor HTTP da API, o mesmo POST recebeu `302` aos 65 s no acesso direto e nas entradas da demo e de HA. O destino com escapes, consulta e fragmento foi idêntico nos três cabeçalhos `Location`. Para a resposta que ultrapassava o prazo, os três acessos receberam `503` aos 90 s sem `Location`. Todas as respostas incluíram `Cache-Control: no-store`. Na configuração anterior, a API direta retornava `302` aos 65 s e as entradas já haviam respondido `503` aos 60 s. Para repetir nos serviços de teste, execute o [roteiro da CI](../../tests/ops/ci.sh).
+O laboratório local cobre o encaminhamento entre processos. A perda de um host físico exige a instalação distribuída.

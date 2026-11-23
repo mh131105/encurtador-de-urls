@@ -1,16 +1,17 @@
 # Ensaio de perda de um host
 
-Execute em instalação dedicada seguindo a [topologia de referência](../../deploy/ha/topologia.md). Registre inventário, digests, domínios de falha, datacenter, RF, consistências, sincronização dos relógios e hora UTC. Recupere todos os nós e valide o quórum entre cenários.
+Use uma instalação dedicada com os domínios de falha da [topologia de referência](../../deploy/ha/topologia.md). Registre distribuição dos serviços, digests, RF, consistências, relógios e saúde inicial. Reponha os componentes e confirme a sincronização e o quórum entre cenários.
 
-Antes de cada falha, crie destinos que contenham escapes, consulta e fragmento. Guarde cada par `short_url` e destino após o `201`. Leia os pares pelas duas APIs, com cache vazio ou prefixo exclusivo desta execução. Use clientes sem redirecionamento automático. Confira `302`, `Cache-Control: no-store` e `Location` idêntico ao destino enviado.
+Antes de cada retirada, crie vínculos de controle com escapes, consulta e fragmento. Guarde cada destino e o `short_url` após o `201`. Teste pela mesma origem pública, abrindo um vínculo anterior e outro criado durante a falha. Em cada API sobrevivente, confirme as duas rotas sem seguir o `302`, com `Cache-Control: no-store` e `Location` integral. Para comprovar leitura persistente, esfrie apenas a chave de teste antes de cada método. O [verificador HTTP](../../deploy/demo/verificar.py) compara a representação correta de destinos ASCII e Unicode.
 
-1. Retire o host de uma API. Crie pela origem pública e resolva, pela réplica disponível, um vínculo confirmado antes da falha e um confirmado durante a falha.
-2. Retire a entrada NGINX ativa. Acompanhe o endereço público e a sonda do balanceador. Repita criação e ambas as leituras após o failover automático.
-3. Retire o Redis. Comprove criação e resolução com contadores de acertos de cache estáveis e consultas CQL crescentes.
-4. Retire um único host Cassandra com RF 3. Confira o quórum restante com `nodetool status` e repita os pares conhecidos e a criação. Em cenário separado, esvazie o cache de teste e retire um segundo nó para perder o quórum. Criação e resolução de um destino conhecido devem retornar `503` sem `Location`. Reponha e sincronize os nós.
+| Retirada | O que observar |
+| --- | --- |
+| Um host da API | O balanceamento encaminha à réplica restante. Uma criação confirmada antes e outra durante a falha continuam resolvendo para os destinos originais. |
+| A entrada NGINX ativa | A sonda do balanceador detecta a perda e o mesmo endereço público volta a criar e resolver pelos dois métodos sem intervenção no cliente. |
+| O Redis | A criação e a resolução continuam. Os acertos do cache param de subir e as leituras CQL acompanham as consultas frias. |
+| Um nó Cassandra com RF 3 | Os dois sobreviventes mantêm quórum, atendem links confirmados e aceitam novas criações. Em cenário isolado com cache frio, retire um segundo nó e verifique que criação e leitura persistente devolvem `503` sem `Location`. |
+| Um host do armazenamento da marca | As APIs sobreviventes veem a geração e o teto duráveis mais recentes. Force uma nova reserva em uma API sem saldo e confirme sua LWT e o vínculo criado. Na perda total da marca, a criação devolve `503` e links vigentes continuam resolvendo. |
 
-5. Em ensaio separado, retire um host que atende o diretório externo de emissão. Registre qual réplica do armazenamento assumiu e confira, a partir de cada API sobrevivente, a geração e o teto da última marca confirmada. Prove que ambas continuam criando e resolvendo e que uma nova reserva por LWT ocorre com a mesma marca. Em caso de perda total da marca, confirme que a criação passa a `503` e a resolução dos vínculos vigentes continua. Restaure apenas a versão atual comprovada seguindo o guia de recuperação.
+Para qualquer host que acumule serviços, exercite a perda conjunta desses componentes e confira a versão da marca em todos os leitores. Antes de restabelecer a criação após uma restauração, use a [marca externa atual e a sequência de recuperação](../../deploy/ha/recuperacao.md).
 
-Durante cada uma das retiradas anteriores, inclusive as de host compartilhado entre serviços, registre a disponibilidade da marca externa e compare geração e teto com os da autorização durável. Um failover do armazenamento que exponha uma versão antiga compromete a segurança da retomada.
-
-Para cada cenário, registre o instante da falha, a última operação confirmada, os status e cabeçalhos, os contadores por réplica, a primeira criação e a primeira resolução bem-sucedidas durante a falha e o instante da recuperação. Compare os destinos dos links confirmados antes e depois de recompor o cluster. Publique topologia, amostra, duração e falhas observadas. As metas mensais de disponibilidade e de latência aguardam decisão do mantenedor.
+Registre hora UTC da falha, última operação confirmada, primeira criação e primeira resolução bem-sucedidas, erros observados e hora da recomposição. Compare com os pares de controle e as [métricas por processo](metricas.md). Esses dados permitem medir a interrupção no ambiente ensaiado. Uma execução com contêineres no mesmo host não cobre a perda física desse host.

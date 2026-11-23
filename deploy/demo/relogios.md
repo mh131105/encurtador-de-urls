@@ -37,5 +37,3 @@ python3 deploy/demo/relogios.py 5 python3 -c 'import time; print(time.time_ns())
 python3 deploy/demo/relogios.py 5 python3 -c 'import time; print(time.time_ns() + 8_000_000_000)'
 python3 deploy/demo/relogios.py 0 python3 -c 'import time; print(time.time_ns())'
 ```
-
-No ensaio local, os intervalos foram `[-4, 23] ms` (dentro de ±5000 ms), `[7996, 8023] ms` (acima de ±5000 ms) e `[-4, 23] ms` (inconclusivo para ±0 ms). Os limites variam com a duração do comando. As medições da VPS e dos hosts de HA seguem pendentes.
