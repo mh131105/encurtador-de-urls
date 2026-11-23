@@ -1,4 +1,13 @@
-# <img src="web/src/assets/xispa.svg" alt="XISPA" width="280">
+# XISPA
+
+```text
+  ##   ##  ####   #####  #####     ##
+   ## ##    ##   ##      ##  ##   ####
+   ###     ##    ####   ##  ##  ##  ##
+   ###     ##       ##  #####   ######
+ ## ##    ##       ##  ##      ##  ##
+##   ##  ####  #####   ##      ##  ##
+```
 
 [**Ver a demonstração**](#demonstração) · [Instalar](#instalar) · [Arquitetura](docs/arquitetura.md) · [Docker Hub](https://hub.docker.com/r/mh131105/encurtador-de-urls)
 
@@ -8,11 +17,11 @@ O projeto também serve para estudar sistemas distribuídos. A mesma aplicação
 
 ## Demonstração
 
-O vídeo de 26 segundos mostra o formulário criando o link `xispa.test/VKBtHZF`. Ao abri-lo, o navegador chega à seção **Resultados e recorte** do projeto Amazônia nas Provas. O domínio foi configurado só para a demonstração local. O vídeo tem legendas em português.
+O vídeo de 27 segundos mostra o formulário criando o link `xispa.test/aMz41Hi`. Ao abri-lo, o navegador chega à página inicial do Google. O domínio foi configurado só para a demonstração local. O vídeo tem legendas em português.
 
-https://github.com/user-attachments/assets/6fb19bbd-3b8e-4050-a181-4d697dce2dee
+https://github.com/user-attachments/assets/0c3a16e4-5dbe-460f-a62d-742ff1322645
 
-[Baixar o vídeo (MP4)](https://github.com/mh131105/encurtador-de-urls/releases/download/v0.1.1/demonstracao.mp4) · [Abrir a página de destino](https://github.com/mh131105/amazonia-nas-provas#resultados-e-recorte)
+[Baixar o vídeo (MP4)](https://github.com/mh131105/encurtador-de-urls/releases/download/v0.1.2/demonstracao.mp4) · [Abrir o Google](https://www.google.com/)
 
 ## Instalar
 
@@ -20,12 +29,12 @@ Você precisa do Docker com o Compose 2.24.0 ou mais recente. Os comandos abaixo
 
 ### Usar as imagens prontas do Docker Hub
 
-Este caminho dispensa Git, Node.js e compilação. Baixe o pacote da versão 0.1.1 e inicie o serviço na sua máquina.
+Este caminho dispensa Git, Node.js e compilação. Baixe o pacote da versão 0.1.2 e inicie o serviço na sua máquina.
 
 ```sh
-curl -fLO https://github.com/mh131105/encurtador-de-urls/releases/download/v0.1.1/encurtador-0.1.1.tar.gz
-tar -xzf encurtador-0.1.1.tar.gz
-cd encurtador-0.1.1
+curl -fLO https://github.com/mh131105/encurtador-de-urls/releases/download/v0.1.2/encurtador-0.1.2.tar.gz
+tar -xzf encurtador-0.1.2.tar.gz
+cd encurtador-0.1.2
 bash scripts/iniciar.sh
 ```
 
@@ -56,7 +65,7 @@ Para parar e retomar o serviço, use `docker compose stop` e `docker compose sta
 ```sh
 curl -i http://localhost:8080/api/v1/encurtar \
   -H 'Content-Type: application/json' \
-  -d '{"url":"https://github.com/mh131105/amazonia-nas-provas#resultados-e-recorte"}'
+  -d '{"url":"https://www.google.com/"}'
 ```
 
 O serviço responde `201 Created` com o endereço em `short_url`. Abra esse endereço com o navegador ou consulte-o com `curl -i` para ver o `302` e o destino em `Location`. A rota `POST /api/v1/redirecionar` também aceita o JSON com `short_url` e devolve o mesmo redirecionamento. Um link desconhecido ou vencido recebe `404`.

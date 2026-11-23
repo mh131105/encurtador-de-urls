@@ -4,27 +4,27 @@ Você precisa de Docker com Docker Compose **2.24.0 ou superior** e um terminal 
 
 ## Usar as imagens do Docker Hub
 
-Baixe o pacote da versão 0.1.1. Ele reúne o arquivo Compose, o esquema do Cassandra e o iniciador. As imagens públicas da API e da interface estão disponíveis para Linux amd64 e arm64. Git, Node.js e npm só são necessários para outros fluxos de desenvolvimento.
+Baixe o pacote da versão 0.1.2. Ele reúne o arquivo Compose, o esquema do Cassandra e o iniciador. As imagens públicas da API e da interface estão disponíveis para Linux amd64 e arm64. Git, Node.js e npm só são necessários para outros fluxos de desenvolvimento.
 
 ```sh
-curl -fLO https://github.com/mh131105/encurtador-de-urls/releases/download/v0.1.1/encurtador-0.1.1.tar.gz
-tar -xzf encurtador-0.1.1.tar.gz
-cd encurtador-0.1.1
+curl -fLO https://github.com/mh131105/encurtador-de-urls/releases/download/v0.1.2/encurtador-0.1.2.tar.gz
+tar -xzf encurtador-0.1.2.tar.gz
+cd encurtador-0.1.2
 bash scripts/iniciar.sh
 ```
 
-Quando o terminal mostrar **Instalação pronta**, abra <http://localhost:8080>, cole um destino e clique em **Encurtar**. Abra o endereço curto para conferir o redirecionamento. Guarde o diretório de instalação em um local persistente.
+No terminal interativo, o iniciador desenha XISPA em caracteres de texto quando a página está pronta. Ao aparecer **Instalação pronta**, abra <http://localhost:8080>, cole um destino e clique em **Encurtar**. Abra o endereço curto para conferir o redirecionamento. Guarde o diretório de instalação em um local persistente.
 
 O iniciador obtém as imagens automaticamente. Se preferir baixá-las antes da instalação, execute os dois comandos no host que vai rodar o serviço.
 
 ```sh
 docker pull mh131105/encurtador-de-urls:0.1.0
-docker pull mh131105/encurtador-de-urls-web:0.1.1
+docker pull mh131105/encurtador-de-urls-web:0.1.2
 ```
 
 ### Atualizar o formulário da versão 0.1.0
 
-Para uma instalação feita com as imagens do Docker Hub, abra o `.env` na pasta original e altere a linha da interface para `NGINX_IMAGE=mh131105/encurtador-de-urls-web:0.1.1`. Na mesma pasta, execute os comandos abaixo.
+Para uma instalação feita com as imagens do Docker Hub, abra o `.env` na pasta original e altere a linha da interface para `NGINX_IMAGE=mh131105/encurtador-de-urls-web:0.1.2`. Na mesma pasta, execute os comandos abaixo.
 
 ```sh
 docker compose pull nginx

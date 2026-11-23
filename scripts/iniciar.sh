@@ -38,11 +38,11 @@ if [[ ! -f state/instalacao ]]; then
   done
 
   api=mh131105/encurtador-de-urls:0.1.0
-  web=mh131105/encurtador-de-urls-web:0.1.1
+  web=mh131105/encurtador-de-urls-web:0.1.2
   if [[ $modo == --build ]]; then
     [[ -f Dockerfile && -f deploy/nginx/Dockerfile ]] || falhar 'A opção --build requer o clone completo do repositório.'
     api="$projeto-api:0.1.0"
-    web="$projeto-web:0.1.1"
+    web="$projeto-web:0.1.2"
   fi
   chave=$(od -An -N32 -tx1 /dev/urandom | tr -d '[:space:]')
   [[ ${#chave} == 64 ]] || falhar 'Não foi possível gerar a chave de emissão.'
@@ -126,6 +126,7 @@ compose up -d api nginx
 for ((i=0; i<30; i++)); do
   if compose exec -T api node -e "fetch('http://127.0.0.1:3000/internal/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" >/dev/null 2>&1 &&
      compose exec -T nginx wget -qO /dev/null http://127.0.0.1/; then
+    if [[ -t 1 && -r web/src/assets/xispa.txt ]]; then cat web/src/assets/xispa.txt; fi
     printf 'Instalação pronta. Abra %s/\n' "$PUBLIC_ORIGIN"
     exit 0
   fi

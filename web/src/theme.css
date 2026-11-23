@@ -24,6 +24,7 @@ main {
 }
 
 .shortener .identity {
+  container-type: inline-size;
   display: grid;
   gap: .625rem;
   font-size: 1rem;
@@ -33,13 +34,16 @@ main {
 
 .wordmark {
   display: block;
-  width: min(100%, 19rem);
-  height: auto;
+  width: max-content;
+  white-space: pre;
+  font-family: ui-monospace, "Cascadia Mono", "Liberation Mono", monospace;
+  font-weight: 700;
+  font-size: min(1.125rem, 4.1cqi);
+  line-height: 1;
+  letter-spacing: 0;
 }
 
 .shortener form {
-  --color-accent: #3154f5;
-  --color-on-accent: #fff;
   display: grid;
   gap: 1rem;
   margin-block-start: 2rem;
