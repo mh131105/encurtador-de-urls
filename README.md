@@ -1,13 +1,4 @@
-# XISPA
-
-```text
-  ##   ##  ####   #####  #####     ##
-   ## ##    ##   ##      ##  ##   ####
-   ###     ##    ####   ##  ##  ##  ##
-   ###     ##       ##  #####   ######
- ## ##    ##       ##  ##      ##  ##
-##   ##  ####  #####   ##      ##  ##
-```
+# <img src="web/src/assets/xispa.svg" alt="XISPA" width="300">
 
 [**Ver a demonstração**](#demonstração) · [Instalar](#instalar) · [Arquitetura](docs/arquitetura.md) · [Docker Hub](https://hub.docker.com/r/mh131105/encurtador-de-urls)
 
@@ -17,11 +8,11 @@ O projeto também serve para estudar sistemas distribuídos. A mesma aplicação
 
 ## Demonstração
 
-O vídeo de 27 segundos mostra o formulário criando o link `xispa.test/aMz41Hi`. Ao abri-lo, o navegador chega à página inicial do Google. O domínio foi configurado só para a demonstração local. O vídeo tem legendas em português.
+O vídeo de 26 segundos mostra o formulário criando o link `xispa.test/aSPUXMZ`. Ao abri-lo, o navegador chega à página inicial do Google. O domínio foi configurado só para a demonstração local. O vídeo tem legendas em português.
 
-https://github.com/user-attachments/assets/0c3a16e4-5dbe-460f-a62d-742ff1322645
+https://github.com/user-attachments/assets/c9823d06-e8de-41d0-a702-604775aa45f3
 
-[Baixar o vídeo (MP4)](https://github.com/mh131105/encurtador-de-urls/releases/download/v0.1.2/demonstracao.mp4) · [Abrir o Google](https://www.google.com/)
+[Baixar o vídeo (MP4)](https://github.com/mh131105/encurtador-de-urls/releases/download/v0.1.3/demonstracao.mp4) · [Abrir o Google](https://www.google.com/)
 
 ## Instalar
 
@@ -29,12 +20,12 @@ Você precisa do Docker com o Compose 2.24.0 ou mais recente. Os comandos abaixo
 
 ### Usar as imagens prontas do Docker Hub
 
-Este caminho dispensa Git, Node.js e compilação. Baixe o pacote da versão 0.1.2 e inicie o serviço na sua máquina.
+Este caminho dispensa Git, Node.js e compilação. Baixe o pacote da versão 0.1.3 e inicie o serviço na sua máquina.
 
 ```sh
-curl -fLO https://github.com/mh131105/encurtador-de-urls/releases/download/v0.1.2/encurtador-0.1.2.tar.gz
-tar -xzf encurtador-0.1.2.tar.gz
-cd encurtador-0.1.2
+curl -fLO https://github.com/mh131105/encurtador-de-urls/releases/download/v0.1.3/encurtador-0.1.3.tar.gz
+tar -xzf encurtador-0.1.3.tar.gz
+cd encurtador-0.1.3
 bash scripts/iniciar.sh
 ```
 

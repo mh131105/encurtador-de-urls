@@ -48,13 +48,12 @@ try {
   const heading = page.getByRole('heading', {level: 1, name: 'XISPA Encurtador de URLs', exact: true});
   const logo = heading.getByRole('img', {name: 'XISPA', exact: true});
   await logo.waitFor();
+  await logo.evaluate(image => image.decode());
   await page.setViewportSize({width: 280, height: 640});
   assert.ok(await logo.evaluate(mark => {
-    const range = document.createRange();
-    range.selectNodeContents(mark);
-    const ink = range.getBoundingClientRect();
+    const ink = mark.getBoundingClientRect();
     const heading = mark.closest('h1').getBoundingClientRect();
-    return mark.textContent.trimEnd().split('\n').length > 1 && ink.width > 0 &&
+    return ink.width > 0 && ink.height > 0 &&
       ink.left >= heading.left - 1 && ink.right <= heading.right + 1;
   }));
   await page.setViewportSize({width: 360, height: 780});

@@ -40,10 +40,10 @@ services:
         aliases: [api]
   api-b: *api
   demo:
-    image: \${NGINX_IMAGE:-encurtador-nginx:0.1.2}
+    image: \${NGINX_IMAGE:-encurtador-nginx:0.1.3}
     ports: ["127.0.0.1::80"]
   ha:
-    image: \${NGINX_IMAGE:-encurtador-nginx:0.1.2}
+    image: \${NGINX_IMAGE:-encurtador-nginx:0.1.3}
     ports: ["127.0.0.1::80"]
     volumes: ["\${HA_CONFIG}:/etc/nginx/nginx.conf:ro"]
 `);
