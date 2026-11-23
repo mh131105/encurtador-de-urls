@@ -23,6 +23,26 @@ main {
   box-shadow: var(--shadow-low);
 }
 
+.shortener .identity {
+  container-type: inline-size;
+  display: grid;
+  gap: .625rem;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.wordmark {
+  display: block;
+  width: max-content;
+  white-space: pre;
+  font-family: ui-monospace, "Cascadia Mono", "Liberation Mono", monospace;
+  font-weight: 700;
+  font-size: min(1.125rem, 4.1cqi);
+  line-height: 1;
+  letter-spacing: 0;
+}
+
 .shortener form {
   display: grid;
   gap: 1rem;
