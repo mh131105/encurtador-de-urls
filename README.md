@@ -4,11 +4,9 @@
 
 O XISPA é um encurtador de URLs que você pode hospedar no seu próprio domínio. Cole um endereço na página e compartilhe o link gerado. Ele usa um código de sete caracteres e leva ao destino original, inclusive à seção indicada depois de `#`. Qualquer pessoa pode criar ou abrir um link sem cadastro.
 
-O projeto também serve para estudar sistemas distribuídos. A mesma aplicação pode rodar em uma máquina com Docker ou usar várias réplicas da API e distribuir os dados entre nós do Apache Cassandra.
+A mesma aplicação pode rodar em uma máquina com Docker ou usar várias réplicas da API e distribuir os dados entre nós do Cassandra.
 
 ## Demonstração
-
-O vídeo de 26 segundos mostra o formulário criando o link `xispa.test/aSPUXMZ`. Ao abri-lo, o navegador chega à página inicial do Google. O domínio foi configurado só para a demonstração local.
 
 https://github.com/user-attachments/assets/ff9dd577-704b-40ae-8df5-d19741b0fd76
 
