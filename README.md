@@ -67,5 +67,6 @@ O Cassandra confirma a gravação antes de a API entregar o link. O vínculo é 
 
 O guia de arquitetura explica como as réplicas emitem códigos distintos, como o banco distribui os vínculos e quais falhas cada topologia tolera. A instalação local e a recuperação de dados foram exercitadas. A vazão de produção e a tolerância à perda de um host ainda dependem de ensaios em infraestrutura independente. [Arquitetura](docs/arquitetura.md) · [Topologia distribuída](deploy/ha/topologia.md) · [Medições da instalação local](deploy/demo/qualificacao.md)
 
-##licença
+## licença
+
 [Licença Apache-2.0](LICENSE)
