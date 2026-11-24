@@ -1,88 +1,145 @@
 # Arquitetura do XISPA
 
-Um link compartilhado precisa continuar apontando para o destino confirmado na criação, mesmo quando outra réplica atende à consulta ou o serviço reinicia. O vínculo é imutável e vence após dez anos civis. O domínio pertence ao operador. Qualquer pessoa pode criar ou abrir um link sem cadastro, e cada código contém exatamente sete caracteres. A mesma aplicação pode rodar em um host ou em uma instalação distribuída.
+Na demonstração, uma pessoa cola `https://www.google.com/` no formulário. O XISPA responde com um link no domínio `xispa.test` que termina em sete caracteres. Ao abrir esse link, o navegador volta ao XISPA para descobrir o destino e só então carrega o Google. O código identifica uma associação entre dois endereços. Quem hospeda o serviço precisa conservá-la por dez anos civis, mesmo que a aplicação reinicie ou que outra máquina atenda ao próximo clique. [Demonstração](../README.md#demonstração)
+
+Criar e abrir um link impõem exigências diferentes. Na criação, a API precisa entregar um código exclusivo e garantir que o destino já esteja gravado quando alguém receber o link. Depois, o mesmo código pode ser aberto milhares de vezes. A arquitetura combina um registro durável no Cassandra com uma cópia temporária no Redis para acelerar essas leituras.
+
+## 1. Contexto — quem cria o link e quem o abre
+
+No primeiro nível do modelo C4, o XISPA aparece como um único sistema. Quem compartilha escolhe o destino. Quem recebe precisa apenas de um navegador. O site de destino é um sistema independente, mesmo quando a visita começa por um link do XISPA. [Modelo C4](https://c4model.com/diagrams)
 
 ```mermaid
 flowchart LR
-    Cliente["Navegador ou cliente HTTP"] -->|Requisição pública| NGINX
-    NGINX -->|Página React e arquivos estáticos| Cliente
-    NGINX -->|Criação e resolução| API["API Node.js"]
-    API -->|Reserva e gravação de vínculos| CQL["Apache Cassandra"]
-    API -->|Consulta por código em caso de falta no cache| CQL
-    API -->|Consulta e preenchimento do cache| Redis
-    API -->|Autorização de emissão| Marca["Marca durável fora do banco"]
+    accTitle: C4 nível 1 — pessoas e sistemas
+    accDescr: Quem compartilha envia um destino ao XISPA. Quem recebe abre o link curto e seu navegador visita o site indicado.
+    autor["Pessoa que compartilha"] -->|Envia o destino| xispa["XISPA<br/>Sistema de links curtos"]
+    leitor["Pessoa que recebe"] -->|Abre o link curto| xispa
+    leitor -->|Segue o redirecionamento| site["Site de destino<br/>Sistema externo"]
 ```
 
-## O contrato HTTP
+O domínio curto pertence à instalação. Qualquer pessoa pode criar ou abrir links sem cadastro. O conteúdo da página continua no site de destino, que recebe a visita diretamente do navegador. É essa passagem de um sistema ao outro que aparece no cabeçalho HTTP `Location`.
 
-| Requisição | Resposta quando bem-sucedida | Por que existe |
-| --- | --- | --- |
-| `POST /api/v1/encurtar` com `{"url":"…"}` | `201 Created` e `{"short_url":"…"}` | Cria um vínculo depois de o Cassandra confirmar a gravação no nível de consistência configurado. O endereço devolvido usa `PUBLIC_ORIGIN`, independentemente do host pelo qual a API foi acessada. |
-| `GET /{codigo}` | `302 Found`, `Location` e `Cache-Control: no-store` | Permite abrir o link diretamente em um navegador, inclusive com JavaScript desativado. |
-| `POST /api/v1/redirecionar` com `{"short_url":"…"}` | O mesmo `302` e os mesmos cabeçalhos | Permite que uma integração entregue o link curto inteiro. A API exige a origem configurada e um caminho literal formado por uma barra e pelo código. |
+### As três rotas, com o mesmo link
 
-O `302` apresenta o destino como temporário. Com `no-store`, um cliente que respeita o cabeçalho volta a consultar o serviço, onde o vencimento será conferido. [Semântica de 302 Found na RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html#section-15.4.3)
+**Criar um link — `POST /api/v1/encurtar`.** O botão **Encurtar** envia o endereço original no campo `url`. Com o XISPA na porta padrão, o comando abaixo faz o mesmo pedido pelo terminal. [Instalação local](instalacao.md)
 
-Uma criação com destino inválido ou um POST de resolução malformado recebe `400`. Um código ausente ou vencido recebe `404`. Uma operação necessária que expira ou falha sem confirmação recebe `503`. Se a resposta de criação se perder depois da gravação, uma nova tentativa poderá criar outro link para o mesmo destino. O NGINX evita repetir automaticamente um POST já enviado à API. [Rotas HTTP](../src/http/server.ts) · [Regras do proxy](../deploy/nginx/rotas.conf)
+```sh
+curl -i http://localhost:8080/api/v1/encurtar \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://www.google.com/"}'
+```
 
-**Preservação do destino.** A criação aceita um endereço absoluto HTTP ou HTTPS com host, enviado em JSON UTF-8 de até 1 MiB. Espaços, barras invertidas, controles ASCII e Unicode malformado são rejeitados. A API valida o destino e armazena o texto original. Na resolução, ASCII conserva sua grafia byte a byte. Assim, `https://loja.example/café%2F?q=%2b#seção` produz `https://loja.example/caf%C3%A9%2F?q=%2b#se%C3%A7%C3%A3o` em `Location`. Os caracteres internacionais viram escapes de bytes UTF-8 e os escapes existentes mantêm sua caixa.
+A opção `-d` envia os dados por POST. Nesta execução, o serviço confirmou a criação com `201 Created` e devolveu o endereço curto no corpo da resposta.
 
-Um hostname internacional sem escapes prévios usa a conversão IDNA do Node.js. Quando o próprio host mistura Unicode e escapes, apenas os caracteres internacionais literais são codificados. Essa distinção conserva a grafia já aceita e permite ao navegador resolver o host. A expansão para `%HH` pode aproximar o cabeçalho de 3 MiB no limite do corpo. O NGINX reserva espaço para esse caso nas rotas de resolução, com custo de memória sob concorrência. [Validação da entrada](../src/links/link.ts) · [Construção de Location](../src/http/redirect.ts) · [Teste de cabeçalhos pela entrada](../tests/ops/redirecionamento.mjs)
+```http
+HTTP/1.1 201 Created
+Content-Type: application/json; charset=utf-8
 
-## Por que o código tem sete caracteres
+{"short_url":"http://localhost:8080/amlTKua"}
+```
 
-O requisito de capacidade é criar 100 milhões de links e resolver 1 bilhão em 24 horas, inclusive com dez consultas ao banco por criação durante a indisponibilidade do cache. Isso corresponde, em média, a cerca de **1.157 criações/s e 11.574 resoluções/s**. Para dimensionar o espaço de códigos, a hipótese é manter esse ritmo de **criação** durante dez anos. Em um intervalo de até 3.653 dias, seriam 365,3 bilhões de novos vínculos. As resoluções não consomem novos códigos. [Critérios do ensaio de carga](../tests/load/relatorio.md#ensaio-sustentado-de-24-horas)
+O `201` só é enviado depois que o Cassandra confirma a gravação. Na sua instalação, copie o valor de `short_url` que aparecer. Uma nova criação para o mesmo destino pode gerar outro código. O domínio e a porta vêm da configuração `PUBLIC_ORIGIN`.
 
-O alfabeto Base62 usa os dez algarismos, 26 maiúsculas e 26 minúsculas. Com distinção de caixa e zeros à esquerda, há exatamente `62ⁿ` sequências de comprimento fixo `n`.
+**Abrir o link — `GET /{codigo}`.** Acessar o endereço curto no navegador consulta o código presente no caminho. Para ver a resposta antes de o navegador seguir para o Google, digite `read -r LINK` no terminal e pressione Enter. Cole o endereço que você recebeu em `short_url`, sem aspas, e pressione Enter de novo. O curl pode agora consultar esse mesmo link.
 
-| Comprimento | Códigos possíveis | Comparação com o horizonte de 365,3 bilhões de criações |
-| --- | ---: | --- |
-| 6 caracteres | 62⁶ = 56.800.235.584 | Insuficiente mesmo usando todas as posições. |
-| 7 caracteres | 62⁷ = 3.521.614.606.208 | O contador começa em 62⁴ = 14.776.336. Restam **3.521.599.829.872** posições em `[62⁴, 62⁷)`, antes de descontar faixas abandonadas. |
+```sh
+curl -i "$LINK"
+```
 
-**Sete é o menor comprimento fixo em Base62 que atende a essa hipótese.** O piso `62⁴` reserva as primeiras posições do contador interno. O estoque de IDs é finito durante toda a vida da instalação. Vencer um vínculo libera os dados segundo a política do banco, mas seu código jamais volta ao emissor.
+```http
+HTTP/1.1 302 Found
+Location: https://www.google.com/
+Cache-Control: no-store
+```
 
-### Do ID interno ao código público
+O curl exibe o primeiro salto. O navegador segue o `Location` e faz uma nova requisição ao Google. O XISPA usa um redirecionamento temporário (`302`) e pede ao cliente que não armazene a resposta (`no-store`). Assim, da próxima vez que o link for aberto, o serviço poderá verificar se ainda está dentro da validade. [Semântica do 302 na RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html#section-15.4.3)
 
-O contador interno é privado e crescente. A API converte cada ID em sete dígitos Base62 e aplica a permutação FF1-AES com chave e *tweak* fixos. Assim, IDs distintos geram códigos distintos e quem vê um link não consegue deduzir o próximo pela ordem de emissão. [Implementação](../src/ids/codec.ts) · [Vetores de teste](../src/ids/codec.test.ts)
+**Consultar o destino por JSON — `POST /api/v1/redirecionar`.** Uma aplicação também pode enviar o endereço curto inteiro no campo `short_url`. Ele deve pertencer à mesma origem (protocolo, domínio e porta) e terminar em uma barra seguida do código, sem consulta ou fragmento. Este pedido usa o endereço guardado na etapa anterior.
 
-## Concorrência e recuperação do contador
+```sh
+curl -i http://localhost:8080/api/v1/redirecionar \
+  -H 'Content-Type: application/json' \
+  -d "{\"short_url\":\"$LINK\"}"
+```
 
-Para várias APIs emitirem em paralelo, o Cassandra mantém a linha `principal` da tabela `reservations`. Uma transação leve (LWT) usa `LOCAL_SERIAL` para avançar o cursor somente se o próximo ID livre, o teto autorizado, a geração e a impressão digital dos parâmetros ainda corresponderem à leitura. A atualização confirmada concede à réplica um bloco exclusivo, por padrão de até 1.024 IDs. Uma condição rejeitada permite reler o estado e disputar outro bloco. [Reserva condicional](../src/storage/allocator.ts)
+Esse POST devolve o mesmo `302` com o destino em `Location`. As duas rotas de resolução procuram o vínculo que a primeira rota criou. [Implementação das rotas](../src/http/server.ts)
 
-A atomicidade cobre a **reserva do bloco**. Cada vínculo usa depois uma gravação CQL comum, e a API só devolve o código após a confirmação dessa escrita. Uma LWT por criação exigiria coordenar cada novo link na mesma linha. Em blocos, as réplicas distribuem posições já reservadas localmente. Blocos maiores reduzem a frequência de coordenação, mas podem deixar mais posições sem uso no reinício. Se a confirmação se perde, a réplica descarta aquela tentativa. Se a reserva foi aplicada no banco, o bloco inteiro fica sem uso. [Emissor local](../src/ids/allocator.ts) · [Gravação do vínculo](../src/links/create.ts)
+| Se a resposta for… | O que aconteceu |
+| --- | --- |
+| `400 Bad Request` | A API rejeitou os dados do POST. Por exemplo, o destino veio sem `http://` ou `https://`, ou o link curto pertence a outra instalação. Os dois POSTs esperam `application/json` em UTF-8, com até 1 MiB. |
+| `404 Not Found` | A rota não existe ou o código consultado está ausente ou vencido. |
+| `503 Service Unavailable` | O serviço não conseguiu confirmar a operação, por exemplo porque o banco estava indisponível, o prazo acabou ou a emissão de códigos estava suspensa. Se a confirmação de uma criação se perder após a gravação, repetir o POST pode criar outro link. |
 
-Um snapshot pode fazer o cursor retroceder para antes de códigos já entregues. Por isso a administração registra também, fora do Cassandra, a geração e o teto exclusivo de **todas** as faixas autorizadas. A nova marca é persistida com sincronização em disco e troca atômica de arquivo antes da autorização no banco. Cada API relê a marca antes de consumir um ID, mesmo que já possua um bloco. O custo é uma leitura externa por criação e a dependência de armazenamento coerente entre as réplicas.
+## 2. Contêineres — onde cada pedido é atendido
 
-Na restauração, os emissores antigos são isolados e a marca mais recente é congelada. Com uma nova geração, a retomada usa como primeiro ID o último teto exclusivo comprovado, descartando a faixa sobre a qual há dúvida. A marca e o banco são atualizados em etapas. Uma interrupção pode suspender a criação até reconciliar os dois estados. Sem marca atual comprovada ou sem faixa superior disponível, o banco restaurado permanece em leitura. Vínculos posteriores ao backup podem ter sido perdidos, mas seus códigos não serão atribuídos a outros destinos. [Administração da emissão](../src/ids/recovery.ts) · [Backup e restauração](../deploy/ha/recuperacao.md)
+Os três pedidos chegam à mesma entrada. O NGINX entrega o formulário e encaminha as requisições de criação e resolução à API. No vocabulário C4, um contêiner pode ser uma aplicação ou um armazenamento. Por isso o formulário aparece como uma aplicação que executa no navegador, embora seus arquivos sejam distribuídos na imagem Docker do NGINX. [Contêineres no modelo C4](https://c4model.com/diagrams/container)
 
-## Cassandra e Redis no caminho de leitura
+```mermaid
+flowchart TB
+    accTitle: C4 nível 2 — aplicações e armazenamento do XISPA
+    accDescr: O NGINX atende o formulário e os cliques em links curtos e encaminha os pedidos à API. A API grava no Cassandra, consulta o Redis e lê a autorização de emissão em arquivo.
+    subgraph sistema["XISPA"]
+        direction TB
+        web["Formulário no navegador<br/>React e Astryx"] -->|Envia o destino por HTTP| entrada["Entrada web<br/>NGINX"]
+        entrada -->|Encaminha pedidos HTTP| api["API de links<br/>Node.js e TypeScript"]
+        api -->|Grava e consulta por CQL| db[("Vínculos e reservas<br/>Apache Cassandra")]
+        api -->|Consulta e preenche| cache[("Cache de destinos<br/>Redis")]
+        api -->|Lê antes de emitir| marca["Autorização de emissão<br/>Arquivo durável"]
+    end
+    leitor["Quem abre o link<br/>Navegador"] -->|Consulta o código por HTTP| entrada
+```
 
-O Apache Cassandra é um banco distribuído da família de colunas largas (*wide-column*). **CQL**, sigla de *Cassandra Query Language*, é a linguagem usada para definir as tabelas e consultar seus dados. A tabela `links` foi desenhada para recuperar, a partir de um código conhecido, o destino e o instante até o qual ele está vigente. O código é a chave de partição. Uma consulta preparada recupera o destino e os dois instantes em uma única partição. [Esquema do XISPA](../deploy/cassandra/schema.cql) · [Consulta por código](../src/storage/read.ts) · [Modelagem orientada a consultas no Cassandra](https://cassandra.apache.org/doc/latest/cassandra/developing/data-modeling/intro.html)
+O formulário é uma página React com componentes Astryx. O Vite gera os arquivos estáticos que o NGINX entrega ao navegador. A página precisa de JavaScript para enviar o destino e mostrar o resultado. Um link já criado abre também com JavaScript desativado, pois a entrada web encaminha o pedido diretamente à API e devolve o `302`. Somente o NGINX publica uma porta no Compose local. A interface e a API compartilham uma origem, enquanto os bancos e as rotas de diagnóstico ficam na rede privada. [Formulário](../web/src/Shortener.tsx) · [Regras do NGINX](../deploy/nginx/rotas.conf) · [Métricas e saúde](../tests/ops/metricas.md)
 
-A escala horizontal vem do particionamento e da distribuição das réplicas entre os nós. Um hash do código determina sua posição no anel de tokens. As faixas de tokens distribuem o conjunto de vínculos, e o fator de replicação define quantas cópias de cada partição o cluster mantém. Novos nós podem assumir parte dessas faixas e das requisições que elas recebem. Uma única partição muito lida continua sendo atendida pelo seu conjunto de réplicas. Para um serviço pequeno, uma tabela relacional com índice por código também resolve a busca direta. Consultas por destino ou período exigiriam outra modelagem no esquema atual. [Particionamento e replicação no Cassandra](https://cassandra.apache.org/doc/latest/cassandra/architecture/dynamo.html)
+A consulta que orienta a escolha do banco é simples. **Dado um código, qual é o destino e até quando ele vale?** Na tabela `links`, o código é a chave de partição. O destino, a data de criação e o vencimento ficam juntos na mesma linha. O Apache Cassandra, um banco distribuído de colunas largas, permite dividir essas partições entre várias máquinas e manter cópias em mais de uma delas. A API usa CQL (*Cassandra Query Language*) para buscar a linha pela chave, sem percorrer as demais. Essa modelagem favorece o clique. Uma busca por destino ou um relatório por data exigiria organizar os dados de outra forma. [Esquema das tabelas](../deploy/cassandra/schema.cql) · [Consulta por código](../src/storage/read.ts) · [Modelagem no Cassandra](https://cassandra.apache.org/doc/latest/cassandra/developing/data-modeling/intro.html)
 
-O vencimento ocorre no mesmo horário UTC dez anos civis depois da criação. Se o vínculo começou em 29 de fevereiro e o ano de destino é comum, vence em 28 de fevereiro. A API verifica `agora < expires_at` tanto no banco quanto no cache. O TTL físico do Cassandra é o tempo restante em segundos, arredondado para cima, mais um segundo e a tolerância de relógio configurada. Essa margem evita remoção prematura enquanto os relógios se mantêm dentro da tolerância. A compactação recupera espaço em disco posteriormente. Expirações além de 2038 exigem o formato compatível do Cassandra 5. [Escrita com TTL](../src/storage/write.ts) · [Medição dos relógios](../deploy/demo/relogios.md)
+Um link muito compartilhado concentra acessos à mesma chave. O Redis guarda temporariamente o destino e seu vencimento, evitando leituras repetidas dessa partição. Ele pode perder todo o seu conteúdo e voltar a ser preenchido a partir do Cassandra. A diferença entre esses dois armazenamentos aparece no caminho que cada requisição percorre dentro da API.
 
-Um link popular concentra leituras em uma única partição. O Redis reduz essas consultas repetidas com a chave `INSTALLATION_ID:codigo`. Só guarda resultados positivos, por no máximo o menor entre o TTL do cache e a vida restante do vínculo. Na leitura, a API confere sintaxe do destino e vigência. Se a chave faltar, o valor for inválido ou o Redis falhar, consulta o Cassandra. O preenchimento após uma leitura confirmada ocorre em segundo plano. A espera pelo Redis usa no máximo metade do prazo HTTP restante, limitada ainda por `CACHE_TIMEOUT_MS`. Isso deixa tempo para tentar a leitura persistente.
+## 3. Componentes — por dentro da API
 
-Uma instalação pode resolver links com o Redis fora do ar, ao custo de mais leituras no banco. Com Cassandra indisponível, uma entrada válida no cache ainda pode servir o vínculo. Uma falta no cache nesse cenário ou uma criação que exige o banco retorna `503`. Um acerto dispensa a conferência do destino no Cassandra e, por isso, a integridade das chaves depende do controle de escrita no Redis. [Caminho de resolução](../src/links/resolve.ts) · [Adaptador Redis](../src/cache/redis.ts)
+As rotas usam o servidor HTTP do Node.js para receber o pedido e validar seus dados. A criação precisa de um emissor de códigos e de uma gravação no banco. Já a resolução procura um vínculo que ainda esteja vigente. As duas operações rodam no mesmo processo e compartilham as conexões com os serviços de dados. [Composição da API](../src/service.ts)
 
-## Interface, entrada e distribuição
+```mermaid
+flowchart LR
+    accTitle: C4 nível 3 — componentes da API de links
+    accDescr: As rotas HTTP encaminham ao caso de criação ou de resolução. A criação obtém um código do emissor e grava o vínculo. A resolução consulta o cache e pode ler o banco.
+    subgraph processo["API de links · processo Node.js"]
+        http["Rotas HTTP"] -->|Destino| criar["Criação de vínculo"]
+        http -->|Código| resolver["Resolução de vínculo"]
+        criar -->|Pede um código| emitir["Emissor de códigos"]
+        criar -->|Grava o vínculo| cql["Acesso ao Cassandra"]
+        emitir -->|Reserva IDs| cql
+        resolver -->|Procura o destino| redis["Acesso ao Redis"]
+        resolver -->|Lê se faltar no cache| cql
+    end
+```
 
-A página React usa os campos, botões e anúncios acessíveis do Astryx para indicar andamento, erro e confirmação, inclusive por teclado. Um envio em curso bloqueia outra submissão. Se a cópia automática falhar, o campo recebe foco e seleciona o link inteiro. O Vite compila a interface em arquivos estáticos servidos pelo NGINX na mesma origem da API. Esse arranjo dispensa um servidor de renderização para o formulário. Em contrapartida, o formulário precisa carregar JavaScript. [Formulário](../web/src/Shortener.tsx) · [Testes no navegador](../web/tests/formulario.mjs)
+### Criar um código sem repetir outro
 
-A API usa TypeScript e o servidor HTTP nativo do Node.js, com um processo por contêiner e clientes de dados reutilizados. As três rotas compartilham validação e regras de negócio, sem exigir um framework de aplicação. O serviço assume diretamente os prazos HTTP, a validação em tempo de execução e a drenagem durante a parada. O NGINX serve os arquivos, encaminha as requisições públicas e mantém as sondas e métricas em `/internal/` acessíveis pela rede privada. A separação em imagens permite instalar sem compilar no host e acrescentar réplicas da API conservando os links. [Composição da API](../src/service.ts) · [Instalação](instalacao.md) · [Métricas por processo](../tests/ops/metricas.md)
+O espaço de endereços precisa comportar **100 milhões de criações por dia durante dez anos**. Em até 3.653 dias, a meta é de 365,3 bilhões de vínculos. O alfabeto Base62 combina algarismos, letras maiúsculas e minúsculas. Seis caracteres oferecem cerca de 56,8 bilhões de combinações (`62⁶`). Com sete, são 3.521.614.606.208 (`62⁷`). Mesmo reservando os IDs anteriores a `62⁴` (14.776.336), há espaço para a meta. Por isso o código usa sete caracteres, o menor comprimento fixo que atende ao requisito.
 
-## Topologias, capacidade e evidência
+O contador interno é privado e crescente. A API representa cada ID em sete dígitos Base62 e aplica a permutação FF1-AES. Com a mesma chave e os mesmos parâmetros, IDs distintos geram códigos distintos, e quem vê um link não consegue deduzir o próximo pela ordem de emissão. [Conversão e permutação](../src/ids/codec.ts)
 
-| | Instalação local | Referência distribuída |
-| --- | --- | --- |
-| Cassandra | Um nó, fator de replicação (RF) 1 e consistência `ONE`. A perda desse nó impede as gravações e as leituras persistentes. | Três nós em domínios de falha distintos no mesmo datacenter, com `NetworkTopologyStrategy` e RF 3. `LOCAL_QUORUM` requer duas das três réplicas para confirmar leituras e escritas de vínculos. O quórum de leitura inclui ao menos uma réplica que confirmou a escrita. Um nó pode falhar e ainda restar quórum. Com dois indisponíveis, a criação e a resolução com cache frio devolvem `503`. |
-| Entrada e emissão | Uma API e um NGINX. O projeto inteiro compartilha o host. | Duas APIs e duas entradas em hosts distintos, origem pública com balanceador redundante ou endereço virtual e diretório da marca coerente e redundante. A continuidade depende também desses componentes e da conectividade entre eles. |
+Se duas réplicas criarem links ao mesmo tempo, precisam usar IDs diferentes. Cada réplica reserva no Cassandra um bloco exclusivo de até 1.024 posições por padrão. A reserva só avança o contador se o estado lido ainda for o mesmo. Essa operação condicional coordena as réplicas uma vez por bloco. Dentro do bloco, elas consomem os IDs da memória, e a gravação de cada vínculo dispensa uma nova disputa pelo contador. Um reinício pode deixar posições sem uso. [Emissor](../src/ids/allocator.ts) · [Reserva condicional](../src/storage/allocator.ts) · [Gravação do vínculo](../src/links/create.ts)
 
-A expansão do banco requer ingresso dos novos nós e redistribuição dos dados. Ao elevar um keyspace já populado de RF 1 para RF 3, a alteração de schema deve ser seguida de reparo das faixas existentes. Aumentar o número de APIs distribui trabalho HTTP, mas a marca, as reservas e a capacidade de leitura e escrita do banco continuam compartilhadas. [Topologia e expansão](../deploy/ha/topologia.md) · [Ensaio de perda de host](../tests/ops/failover.md)
+Na instalação local, o iniciador autoriza o primeiro milhão de posições. O operador pode ampliar essa faixa conforme o uso. Se todas as posições autorizadas acabarem, a criação responde `503`, e os links já emitidos continuam disponíveis para consulta. [Administração das faixas](../deploy/ha/recuperacao.md#iniciar-uma-instalação-nova)
 
-Na hipótese de 365,3 bilhões de vínculos ativos com destinos de **100 bytes em média**, os textos somam 36,53 TB decimais em uma cópia ou 109,59 TB com RF 3. O consumo físico inclui também chaves, timestamps, metadados, compactação, backups e folga para reconstrução após perda de nó. O dimensionamento precisa de medidas com a distribuição real de destinos e de acessos. [Projeção de disco e ensaio de 24 horas](../tests/load/relatorio.md)
+### Resolver um código enquanto o vínculo estiver vigente
 
-Os ensaios locais exercitaram criação, resolução por ambas as rotas, reinício com cache frio e restauração. Em uma VM Linux de 2 GiB com vizinho sintético e a pilha completa, a maior soma simultânea de memória dos contêineres foi 1.105,68 MiB, com mínimo de 548,64 MiB disponíveis no host. Essa medição descreve a carga da demo. A margem da VPS com os vizinhos reais, a vazão por 24 horas e a continuidade após perda de um host físico permanecem sujeitas a ensaios próprios. [Qualificação da demo](../deploy/demo/qualificacao.md) · [Guia de testes](../CONTRIBUTING.md)
+Ao receber o código, a API consulta primeiro o Redis. Se encontrar um destino válido e ainda vigente, já pode devolver o `302`. Se a entrada estiver ausente ou corrompida, ou se o Redis demorar a responder, a API lê o Cassandra. Ela reserva pelo menos metade do tempo restante do pedido para essa leitura. Encontrado o vínculo, a API pode responder enquanto o cache é preenchido em segundo plano. [Resolução](../src/links/resolve.ts) · [Cache Redis e prazos](../src/cache/redis.ts)
+
+Essa ordem explica o efeito de cada falha. Com o Redis fora do ar, os links continuam abrindo e o banco recebe mais consultas. Se o Cassandra ficar indisponível, a API ainda pode servir destinos vigentes encontrados no cache. Para um código que precise ser lido do banco, a resposta é `503`.
+
+O vínculo vence ao completar dez anos civis no mesmo horário UTC. Se foi criado em 29 de fevereiro e o ano de vencimento é comum, a data passa a ser 28 de fevereiro. A API confere o vencimento tanto no cache quanto no banco e devolve `404` a partir desse instante. O Cassandra remove os dados por tempo de vida (TTL), com margem para arredondamento e para o desvio medido entre os relógios. O código expirado fica fora das novas emissões. [Regra de validade](../src/links/link.ts) · [TTL da gravação](../src/storage/write.ts) · [Medição dos relógios](../deploy/demo/relogios.md)
+
+O endereço gravado também precisa sobreviver à ida e à volta pelo HTTP. A API preserva escapes existentes, consulta e fragmento. Por exemplo, o destino `https://loja.example/café%2F?q=%2b#seção` sai no `Location` como `https://loja.example/caf%C3%A9%2F?q=%2b#se%C3%A7%C3%A3o`. Só os caracteres internacionais literais receberam escapes UTF-8. Para um nome de host internacional sem escapes, a API usa a representação ASCII do domínio (IDNA). [Construção do cabeçalho Location](../src/http/redirect.ts)
+
+## O que muda com mais máquinas ou com uma restauração
+
+Na instalação local, um único nó Cassandra guarda uma cópia do vínculo (fator de replicação 1). Uma confirmação basta para a operação. Esse arranjo permite reproduzir o caminho completo em uma máquina, mas a perda do nó interrompe as gravações e as leituras que precisam dele.
+
+A topologia distribuída de referência usa três nós Cassandra no mesmo datacenter, em domínios de falha diferentes, e mantém três cópias de cada partição. Com `LOCAL_QUORUM`, pelo menos duas réplicas precisam responder a cada leitura ou escrita de vínculo. Com um nó indisponível ainda há quórum. Manter a origem pública acessível exige também duas entradas, duas réplicas da API, balanceamento e armazenamento redundante para a marca de emissão. Ao acrescentar nós, o operador precisa prever redistribuição de dados, reparo e espaço para reconstrução. [Topologia e expansão](../deploy/ha/topologia.md) · [Particionamento e replicação no Cassandra](https://cassandra.apache.org/doc/latest/cassandra/architecture/dynamo.html)
+
+A **marca de emissão** resolve um problema específico da restauração. Imagine que um backup tenha sido feito de manhã e que a instalação tenha emitido mais links à tarde. Restaurar apenas o banco faria o contador voltar à posição da manhã. Por isso um arquivo durável, mantido fora dos backups do Cassandra, registra a geração da instalação e o limite das faixas já autorizadas. Cada API lê a marca antes de emitir. Na recuperação, com os emissores antigos isolados, a nova geração começa no último limite comprovado. Os vínculos posteriores à cópia podem ter sido perdidos, mas seus códigos não passam a apontar para outras páginas. Sem uma marca atual verificável ou uma faixa segura disponível, a instalação restaurada permanece em modo de leitura. [Emissão, backup e restauração](../deploy/ha/recuperacao.md)
+
+Os ensaios locais já exercitaram criação, resolução, reinício com cache vazio e restauração. Em uma máquina virtual de 2 GiB com outro serviço simulado, os quatro serviços do XISPA atingiram juntos um pico de 1.105,68 MiB no reinício. A meta de **100 milhões de criações e 1 bilhão de resoluções em 24 horas** e a continuidade após a perda de um host físico ainda dependem de ensaios em infraestrutura independente. [Medições locais](../deploy/demo/qualificacao.md) · [Projeção de disco e ensaio de carga](../tests/load/relatorio.md) · [Ensaio de falha](../tests/ops/failover.md)
